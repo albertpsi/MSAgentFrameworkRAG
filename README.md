@@ -19,6 +19,7 @@ An advanced, production-ready Retrieval-Augmented Generation (RAG) platform engi
    - [4.1 Relational Schema Map (SQL Server via EF Core)](#41-relational-schema-map-sql-server-via-ef-core)
    - [4.2 Vector Schema (Pinecone Index Metadata)](#42-vector-schema-pinecone-index-metadata)
 5. [🚀 Getting Started & Setup](#5-getting-started--setup)
+6. [🔬 Advanced RAG Engineering & Layout Optimization](#6-advanced-rag-engineering--layout-optimization)
 
 
 ---
@@ -29,6 +30,7 @@ An advanced, production-ready Retrieval-Augmented Generation (RAG) platform engi
 To prepare the RAG platform for massive, highly scalable multi-agent environments, the system was fully refactored from a monolithic approach into a highly decoupled **Controller-Service-Repository** pattern. All core features are wrapped in dependency-injected (DI) services:
 * **`IDocumentIngestionService`**: Handles ingestion tasks, file chunking, embeds text, and writes indices to Pinecone.
 * **`IRetrievalService`**: Decouples the Pinecone vector similarity querying from the controllers and agents, generating balanced citation objects.
+* **`IRerankService`**: Integrates with the native Pinecone Inference API to perform a second-stage fine search, ranking coarse search results and filtering out low-relevance chunks using a strict configurable threshold.
 * **`IChatAgentService`**: Orchestrates stateful multi-turn dialogs, coordinates semantic query rewriting, and runs the AI Agents.
 * **`IDocumentService` / `IConversationService`**: Handle standard relational queries for documents and chat logs in SQL Server.
 * **`SessionCache`**: In-memory singleton caching preserving Microsoft Agents AI state.
@@ -36,7 +38,7 @@ To prepare the RAG platform for massive, highly scalable multi-agent environment
 ---
 
 ### 1.2 High-Fidelity Architecture Blueprint
-This diagram details the interaction between the five system layers, their boundaries, and the data flow through ingestion and querying:
+This diagram details the interaction between the five system layers, their boundaries, and the data flow through ingestion, coarse querying, and fine-grained reranking:
 
 ```mermaid
 graph TB
@@ -53,7 +55,7 @@ graph TB
 
     subgraph BackendLayer ["3. ASP.NET Core C# API & Background workers"]
         Controllers["API Controllers - Chat / Documents / Conversations"]
-        Services["Core Services Layer - ChatAgentService, DocumentIngestionService"]
+        Services["Core Services - ChatAgent, Ingestion, Retrieval, Rerank"]
         Quartz["Quartz.NET Background Engine"]
         DB_Context["EF Core AppDbContext"]
         S_Cache["In-Memory SessionCache"]
@@ -66,8 +68,9 @@ graph TB
         Pinecone_DB[("Pinecone Vector Database")]
     end
 
-    subgraph AILayer ["5. OpenAI Cognitive Services"]
+    subgraph AILayer ["5. AI & Cognitive Services"]
         OpenAI_API["OpenAI API (gpt-4o-mini / text-embedding-3-small)"]
+        Pinecone_Inference["Pinecone Inference API (bge-reranker-v2-m3 Reranker)"]
     end
 
     User -->|"HTTP requests / Server-Sent Events"| UI
@@ -87,6 +90,8 @@ graph TB
     Vector_Adapter -->|"Pinecone Client SDK"| Pinecone_DB
     Services -->|"Pinecone Client SDK"| Pinecone_DB
     Vector_Adapter -->|"Generates Query Embeddings"| OpenAI_API
+    Vector_Adapter -->|"Native Rerank Call"| Pinecone_Inference
+    Services -->|"Native Rerank Call"| Pinecone_Inference
     
     style User fill:#dbeafe,stroke:#1e40af,stroke-width:2px;
     style ClientLayer fill:#f8fafc,stroke:#334155,stroke-width:2px;
@@ -112,22 +117,34 @@ graph TB
 #### Layer 3: C# Web API Core (ASP.NET Core API)
 * **Stack:** .NET 8.0/10.0, Microsoft Agents AI framework, Quartz.NET Scheduler, Pinecone .NET SDK.
 * **`Program.cs`**: Declares CORS policy, DI service registrations, Quartz jobs, and database setup, recovering from stuck states (e.g. marking "Processing" files as "Failed" on system restarts).
+* **Modular Clean Directory Segregation:** To maintain enterprise code standards, the backend has been structured into clean, segregated, functional subdirectories:
+  * `Data/` ── Relational DB Context (`AppDbContext.cs`).
+  * `Models/` ── Logical domain schemas (`Models.cs`) and search chunk models (`TextChunk.cs`).
+  * `Settings/` ── Options pattern configurations (`Settings.cs`).
+  * `Jobs/` ── Background scheduler workers (`FileIngestionJob.cs`).
+  * `Caching/` ── Stateful memory cache adapters (`SessionCache.cs`).
+  * `Search/` ── Dense vector embedding generation (`Embeddings.cs`) and search adapters (`SearchAdapter.cs`).
+  * `Helpers/` ── Multi-format layout parser engines (`FileReader.cs`).
+* **Two-Stage Retrieval (Vector Search + Native Pinecone Reranking)**: To maximize retrieval accuracy, the backend implements a state-of-the-art two-stage retrieval pipeline. When a query is initiated:
+  1. **Stage 1 (Coarse Search):** The rewritten search query is vectorized via OpenAI's `text-embedding-3-small` and used to query Pinecone for a broad set of candidate chunks (configured by `QueryTopK`, e.g., 40 matches).
+  2. **Stage 2 (Fine Reranking):** The candidate chunks are sent to the native `IRerankService`, which invokes the Pinecone Inference API with the `bge-reranker-v2-m3` model. Chunks are scored and filtered using a high-precision relevance threshold (`RerankScoreThreshold`, e.g., 0.5) to keep only the top `RerankTopN` most relevant segments, mitigating LLM context clutter and avoiding hallucinations.
 
 #### Layer 4: Storage Layer
 * **Local Disk (`wwwroot/uploads/`)**: Caches uploaded documents safely for background processing and file chunking.
 * **SQL Server**: Keeps conversational logs, citations, and document metadata.
 * **Pinecone DB**: Holds vectorized chunks with dense metadata fields for semantic lookup.
 
-#### Layer 5: Cognitive Services
+#### Layer 5: Cognitive & Inference Services
 * **OpenAI Embeddings (`text-embedding-3-small`)**: Generates 512-dimension vectors representing text blocks.
 * **OpenAI Completions (`gpt-4o-mini`)**: Powers the reasoning engine, grounding conversations in context retrieved from Pinecone.
+* **Pinecone Inference (`bge-reranker-v2-m3`)**: Evaluates cross-attention semantic relevance between the query and retrieved context chunks, providing precise fine-grained ranking scores.
 
 ---
 
 ## 2. 🤖 Agentic Orchestration Framework (LLD)
 
 ### 2.1 Low-Level Service Contract Class Diagram
-The Low-Level Design defines strict contract boundaries to allow clean service decoupling and mock-friendly unit testing:
+The Low-Level Design defines strict contract boundaries to allow clean service decoupling, two-stage retrieval integration, and mock-friendly unit testing:
 
 ```mermaid
 classDiagram
@@ -158,6 +175,11 @@ classDiagram
         <<interface>>
         +RetrieveContextAsync(string query, string? documentId) Task~List~SourceCitation~~
         +RetrieveContextAsync(string query, List~string~? documentIds) Task~List~SourceCitation~~
+    }
+
+    class IRerankService {
+        <<interface>>
+        +RerankAsync(string query, List~SourceCitation~~ candidates, CancellationToken cancellationToken) Task~List~SourceCitation~~~
     }
 
     class IChatAgentService {
@@ -192,12 +214,20 @@ classDiagram
     class RetrievalService {
         -OpenAISettings _openAiSettings
         -PineconeSettings _pineconeSettings
+        -IRerankService _rerankService
         +RetrieveContextAsync(...) Task~List~SourceCitation~~
+    }
+
+    class RerankService {
+        -PineconeSettings _pineconeSettings
+        -ILogger~RerankService~ _logger
+        +RerankAsync(...) Task~List~SourceCitation~~~
     }
 
     class ChatAgentService {
         -IConversationService _conversationService
         -IRetrievalService _retrievalService
+        -IRerankService _rerankService
         +ProcessChatAsync(...) Task~ChatResponse~
     }
 
@@ -209,6 +239,7 @@ classDiagram
 
     class PineconeTextSearchAdapter {
         -PineconeClient _pinecone
+        -IRerankService _rerankService
         +SearchAsync(string query, CancellationToken ct) Task~IEnumerable~TextSearchResult~~
     }
 
@@ -216,14 +247,18 @@ classDiagram
     ConversationService ..|> IConversationService
     DocumentIngestionService ..|> IDocumentIngestionService
     RetrievalService ..|> IRetrievalService
+    RerankService ..|> IRerankService
     ChatAgentService ..|> IChatAgentService
     MetadataExtractionService ..|> IMetadataExtractionService
 
     ChatAgentService --> IConversationService
     ChatAgentService --> IRetrievalService
+    ChatAgentService --> IRerankService
     ConversationService --> SessionCache
     DocumentIngestionService --> IDocumentService
     DocumentIngestionService --> IMetadataExtractionService
+    RetrievalService --> IRerankService
+    PineconeTextSearchAdapter --> IRerankService
     ChatAgentService ..> PineconeTextSearchAdapter : instantiates
 ```
 
@@ -253,20 +288,20 @@ The system utilizes four distinct **Microsoft Agents AI** (`AIAgent`) instances,
   ```
 
 #### 2. Query Rewrite Agent
-* **Method:** `ChatAgentService.RewriteQueryAsync` ([ChatAgentService.cs#L257](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Services/ChatAgentService.cs#L257))
+* **Method:** `ChatAgentService.RewriteQueryAsync` ([ChatAgentService.cs#L261](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Services/ChatAgentService.cs#L261))
 * **Underlying Model:** `gpt-4o-mini`
 * **Agent Creation:** Instantiated dynamically using the `client.AsAIAgent()` wrapper.
 * **Execution Boundary:** Triggered on incoming messages *if and only if* prior dialogue history exists in the SQL database. Takes the last **5 historical messages** and the latest user query.
 * **System Persona & Rules:** Resolves relative references, pronouns, and ellipses (e.g. resolving *"Compare it with SBI SimplyClick"* following a discussion on *"HDFC Tata Neu"* to *"Comparison of HDFC Tata Neu and SBI SimplyClick credit cards annual fees and benefits"*). Generates a **single standalone query string** optimized for vector search without explaining itself or returning conversational filler.
 
 #### 3. Session Title Agent
-* **Method:** `ChatAgentService.GenerateChatTitleAsync` ([ChatAgentService.cs#L618](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Services/ChatAgentService.cs#L618))
+* **Method:** `ChatAgentService.GenerateChatTitleAsync` ([ChatAgentService.cs#L623](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Services/ChatAgentService.cs#L623))
 * **Underlying Model:** `gpt-4o-mini`
 * **Execution Boundary:** Triggered asynchronously on the first turn of a conversation.
 * **System Persona & Rules:** Analyzes the user's initial question and generates a clean summary sidebar header. Constraint: **Exactly 1 to 3 words** without quotes, punctuation, or markdown.
 
 #### 4. RAG Support Chat Agent (RAGSupportAgent)
-* **Class:** `ChatAgentService` ([ChatAgentService.cs#L110](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Services/ChatAgentService.cs#L110))
+* **Class:** `ChatAgentService` ([ChatAgentService.cs#L16](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Services/ChatAgentService.cs#L16))
 * **Underlying Model:** `gpt-4o-mini`
 * **Knowledge Retrieval hook:** Integrates `TextSearchProvider` from `Microsoft.Agents.AI` containing the `PineconeTextSearchAdapter`. Performs vector search *before* invoking the LLM core.
 * **System Persona & Rules:** Factual banking and insurance assistant. Strictly answers using only retrieved text chunks. If facts are absent, it replies: *"The requested information is not available in the provided documents."* Multi-document aware: groups information by provider, constructs clear markdown comparison tables, preserves exact numbers, and appends citations in the format `[Source: <DocumentName>]`.
@@ -332,7 +367,7 @@ sequenceDiagram
 ---
 
 ### B. Conversational RAG Chat & Retrieval Loop
-Converts conversational text to vector-optimized queries, performs multi-file search with `$in` vector filters, executes the RAG completion, and streams responses.
+Converts conversational text to vector-optimized queries, performs multi-file search with `$in` vector filters, executes the Two-Stage Retrieval pipeline (vector similarity querying + cross-attention reranking), runs the RAG completion, and streams responses.
 
 ```mermaid
 sequenceDiagram
@@ -340,9 +375,12 @@ sequenceDiagram
     actor User as Client UI (Next.js)
     participant Ctrl as ChatController
     participant Service as ChatAgentService
+    participant Adapter as PineconeTextSearchAdapter
+    participant Reranker as RerankService
+    participant OpenAI as OpenAI API
+    participant PineconeVector as Pinecone Vector DB
+    participant PineconeInf as Pinecone Inference Reranker
     participant DB as SQL Server (EF Core)
-    participant RewriteAgent as Query Rewrite Agent (LLM)
-    participant Pinecone as Pinecone Vector DB
     participant ChatAgent as RAGSupportAgent (LLM)
     participant TitleAgent as Title Agent (LLM)
 
@@ -352,19 +390,34 @@ sequenceDiagram
     DB-->>Service: Return List of Messages
     
     alt History Exists (Multi-turn Conversation)
-        Service->>RewriteAgent: Rewrite Query (History + Latest Message)
-        RewriteAgent-->>Service: Return Standalone Query
+        Service->>OpenAI: Rewrite Query (History + Latest Message)
+        OpenAI-->>Service: Return Standalone Standalone Query
     else First Turn
         Note over Service: Use original message as search query
     end
     
-    Note over Service: Configure Pinecone Metadata Filter (Filter by single DocumentId or isLatest = true)
+    Service->>Adapter: Instantiate with Filters & IRerankService
+    Service->>ChatAgent: Run RAG Support Agent
     
-    Service->>Service: Initialize PineconeTextSearchAdapter
-    Service->>Pinecone: Query Vector Search (Query Embedding, TopK = 10, Filter)
-    Pinecone-->>Service: Return Matching Text Chunks & Metadata
+    Note over ChatAgent: AIContextProviders triggers before invoke
+    ChatAgent->>Adapter: SearchAsync(standaloneQuery)
     
-    Service->>ChatAgent: Run RAG Chat Agent (Query + Session + Injected Context Chunks)
+    Adapter->>OpenAI: Generate Embeddings (text-embedding-3-small)
+    OpenAI-->>Adapter: Return 512-Dim Query Vector
+    
+    Adapter->>PineconeVector: Query Index (Vector, TopK = 40, Filter)
+    PineconeVector-->>Adapter: Return Coarse Matches (ScoredVector List)
+    
+    Adapter->>Reranker: RerankAsync(query, candidates)
+    Reranker->>PineconeInf: Inference.RerankAsync (bge-reranker-v2-m3)
+    PineconeInf-->>Reranker: Return Ranked Candidates & Scores
+    Note over Reranker: Filter candidates based on RerankScoreThreshold
+    Reranker-->>Adapter: Return High-Relevance Chunks
+    
+    Note over Adapter: Cache results in LastSearchResults for citations
+    Adapter-->>ChatAgent: Return Chunks to AI context
+    
+    Note over ChatAgent: Agent reasons using retrieved context
     
     alt Streaming Request (/stream)
         ChatAgent-->>User: Yield Active Tokens (Server-Sent Events)
@@ -372,12 +425,12 @@ sequenceDiagram
         ChatAgent-->>Service: Return Final Chat Completion Text
     end
     
-    Service->>Pinecone: Fetch citations for final rendering
-    Pinecone-->>Service: Return Text Citations
+    Service->>Adapter: Read LastSearchResults (Citations Cache)
+    Adapter-->>Service: Return Citations (with Vector & Rerank Scores)
     
     alt Is First Turn of Conversation
-        Service->>TitleAgent: Generate short title from first query
-        TitleAgent-->>Service: Return 1-3 Word Title
+        Service->>OpenAI: Generate short title from first query (Title Agent)
+        OpenAI-->>Service: Return 1-3 Word Title
         Service->>DB: Update Conversation Title
     end
     
@@ -393,6 +446,7 @@ sequenceDiagram
   ```
   If no filters are provided, it falls back to a global search querying only files marked `isLatest = "true"`. If a single ID is selected, it bypasses the `isLatest` check entirely, allowing the user to search through historical archived reports.
 * **Diversification Search Adapter:** For multi-file selections, the custom `PineconeTextSearchAdapter` scales up `queryTopK` and runs a round-robin source-diversification algorithm to prevent a single document from dominating context feeds.
+* **Two-Stage Precision Citations:** Since the AI context is derived from the custom `PineconeTextSearchAdapter` with integrated `IRerankService`, the agent's precise search outputs are automatically cached inside `LastSearchResults`. These are converted back to a structured citation list, mapping vector scores, reranker confidence metrics, and round-trip calculation durations for total transparency.
 
 ---
 
@@ -431,7 +485,13 @@ The relational system is declared in [AppDbContext.cs](file:///d:/MSAgentFramewo
                                              │ CitationsJson : NVARCHAR(MAX) [Null] │
                                              └──────────────────────────────────────┘
 ```
-* **Citations Persistence:** Nested citation structures (`List<SourceCitation>`) are serialized as a string and stored inside `CitationsJson` to avoid table join overhead on fast UI loads.
+* **Citations Persistence & Diagnostic Metadata:** Nested citation structures (`List<SourceCitation>`) are serialized as a string and stored inside `CitationsJson` to avoid table join overhead on fast UI loads. Each citation includes:
+  - `SourceName`: The display name of the document and specific page/chunk reference.
+  - `SourceLink`: Local server link to the original file for download/preview.
+  - `Text`: The exact text context chunk supplied to the LLM.
+  - `Score`: The Stage 1 cosine similarity vector score (relative alignment in dense vector space).
+  - `RerankScore`: The Stage 2 cross-attention score (range 0 to 1, indicating literal semantic answering suitability).
+  - `QueryTimeMs`: The processing latency in milliseconds.
 * **Cascading Deletes:** Deleting a `DbConversation` cascades and deletes all related `DbChatMessage` records dynamically.
 
 ---
@@ -457,11 +517,18 @@ Vectors are generated using OpenAI `text-embedding-3-small` with 512 dimensions.
 ## 5. 🚀 Getting Started & Setup
 
 ### 5.1 Environment Configuration
-Add connection details in your [appsettings.json](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/appsettings.json):
+Add connection details and two-stage retrieval settings in your [appsettings.json](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/appsettings.json):
 ```json
 {
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
   "ConnectionStrings": {
-    "DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=MSAgentFrameworkRAGDb;Trusted_Connection=True;MultipleActiveResultSets=true"
+    "DefaultConnection": "Server=localhost\\SQLEXPRESS;Database=RAGAgent;Integrated Security=True;TrustServerCertificate=True;"
   },
   "OpenAI": {
     "ApiKey": "YOUR_OPENAI_API_KEY",
@@ -470,7 +537,11 @@ Add connection details in your [appsettings.json](file:///d:/MSAgentFrameworkRAG
   },
   "Pinecone": {
     "ApiKey": "YOUR_PINECONE_API_KEY",
-    "IndexName": "YOUR_PINECONE_INDEX_NAME"
+    "IndexName": "YOUR_PINECONE_INDEX_NAME",
+    "RerankModel": "bge-reranker-v2-m3",
+    "RerankScoreThreshold": 0.5,
+    "RerankTopN": 10,
+    "QueryTopK": 40
   }
 }
 ```
@@ -478,7 +549,7 @@ Add connection details in your [appsettings.json](file:///d:/MSAgentFrameworkRAG
 ### 5.2 Execution Steps
 1. **Initialize SQL Database & Start Backend:**
    ```bash
-   cd MSAgentFrameworkRAG
+   cd MSAgentFrameworkRAG/MSAgentFrameworkRAG
    dotnet restore
    dotnet run
    ```
@@ -489,5 +560,43 @@ Add connection details in your [appsettings.json](file:///d:/MSAgentFrameworkRAG
    npm run dev
    ```
    Open `http://localhost:3000` to interact with the application.
+
+---
+
+## 6. 🔬 Advanced RAG Engineering & Layout Optimization
+
+To achieve 100% factual accuracy on complex, structured financial sheets and insurance documents, the platform incorporates three cutting-edge RAG engineering patterns:
+
+### 6.1 Two-Stage Retrieval & Pinecone Reranking
+Vector search alone (`text-embedding-3-small` cosine similarity) often ranks context based on keyword overlap, bringing in irrelevant noise. We implement a **Two-Stage Precision Pipeline**:
+1. **Stage 1 (Coarse Retrieval):** Vector search fetches a broad pool of candidates (`QueryTopK = 40`) from Pinecone.
+2. **Stage 2 (Fine Reranking):** Candidates are sent to the native Pinecone Inference API powered by the **`bge-reranker-v2-m3`** cross-attention model. It scores candidates against the user query, and filters out low-relevance noise via a calibrated threshold (`RerankScoreThreshold = 0.25`), serving only the top `RerankTopN = 10` high-fidelity chunks to the LLM.
+
+### 6.2 Parent-Child (Hierarchical) Retrieval Architecture
+To solve **Semantic Vector Dilution** (where large tables or chapters have "averaged out" vector meanings that fail specific queries), we decouple search from reading:
+* **The Parents (SQL Database):** The entire structured Markdown/JSON table or document section is stored as a `DbParentChunk` in SQL Server.
+* **The Children (Pinecone):** Small 5-row blocks with column headers prepended are vectorized in Pinecone, containing a `parentId` pointing back to SQL.
+* **The Context Swap:** When a child chunk matches in Pinecone, the `SearchAdapter` fetches the **full Parent Table** from SQL and swaps the context. The LLM receives complete, structurally aligned grids instead of fragmented sentences.
+
+```
+                  ┌──────────────────────────────────────────────┐
+                  │   Parent Chunk: Whole Table (Markdown/JSON)  │ (Stored in SQL DB)
+                  └──────────────────────┬───────────────────────┘
+                                         │
+                 ┌───────────────────────┼───────────────────────┐
+                 ▼                       ▼                       ▼
+     ┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐
+     │ Child: Row 1 + Header │ │ Child: Row 2 + Header │ │ Child: Row 3 + Header │ (Vectorized in Pinecone)
+     └───────────────────────┘ └───────────────────────┘ └───────────────────────┘
+```
+
+### 6.3 Row-Span Table Propagation (Forward-Filling)
+In banking PDF charges sheets, card names often vertically span across multiple rows of fees. Standard line-by-line extractors leave subsequent fee rows "orphaned" without their entity name. 
+* **The Solution:** Our `PdfLayoutAnalysisService` implements **Row-Span Propagation**. It tracks visual column horizontal alignments (X-coordinates). If a line starts with a horizontal shift (indicating an empty spanned Column 0), it automatically forward-fills and prepends the active `CardName` from the cache, ensuring every single text chunk remains fully self-contained.
+
+### 6.4 Generic Multi-Format Document Extraction Framework
+The ingestion pipeline is completely format-agnostic. Using a **Factory Pattern** coupled with a **Unified Data Contract (`StructuredDocument`)**, the platform reads and standardizes **PDF, Word (`.docx`), Excel (`.xlsx`), and PowerPoint (`.pptx`)** files:
+* **`StructuredDocument`** maps heading streams to `TextSection` and data spreadsheets/tables to `TableSection` (utilizing standard markdown tables).
+* A single, unified parent-child slicing engine processes the contract identically for all formats, guaranteeing that any layout or table-parsing upgrades instantly work across all enterprise file types.
 
 ---

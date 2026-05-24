@@ -26,6 +26,8 @@ public class FileChunkingService
         }
     }
 
+    private readonly MSAgentFrameworkRAG.Services.PdfLayoutAnalysisService _layoutService = new();
+
     private List<TextChunk> ReadAndChunkPdf(
         string filePath,
         int chunkSize = 1000,
@@ -39,16 +41,72 @@ public class FileChunkingService
 
         foreach (var page in document.GetPages())
         {
-            string pageText = page.Text;
+            if (_layoutService.DetectTableOnPage(page))
+            {
+                Console.WriteLine($"[Layout Analysis] Structured table detected on page {page.Number} of '{Path.GetFileName(filePath)}'. Using hierarchical row-block parser...");
+                
+                // Extract the full structured page table
+                string fullTable = _layoutService.ExtractStructuredTable(page);
+                var rows = fullTable.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
 
-            var pageChunks = ChunkText(
-                pageText,
-                chunkSize,
-                overlap,
-                page.Number,
-                ref globalChunkIndex);
+                if (rows.Length > 1)
+                {
+                    // Treat the first row as the column headers
+                    string headers = rows[0];
+                    int rowsPerBlock = 5;
+                    int overlapRows = 1;
+                    int idx = 1;
 
-            chunks.AddRange(pageChunks);
+                    while (idx < rows.Length)
+                    {
+                        int count = Math.Min(rowsPerBlock, rows.Length - idx);
+                        var rowSubset = rows.Skip(idx).Take(count).ToList();
+
+                        var sbBlock = new StringBuilder();
+                        sbBlock.AppendLine(headers);
+                        sbBlock.AppendLine(new string('-', Math.Min(headers.Length, 60))); // Add separator
+                        foreach (var r in rowSubset)
+                        {
+                            sbBlock.AppendLine(r);
+                        }
+
+                        chunks.Add(new TextChunk
+                        {
+                            ChunkIndex = globalChunkIndex++,
+                            Content = sbBlock.ToString(),
+                            PageNumber = page.Number,
+                            ParentContent = fullTable, // Keep full table for parent swap
+                            Metadata = new Dictionary<string, string>
+                            {
+                                { "PageNumber", page.Number.ToString() },
+                                { "IsTableChild", "true" }
+                            }
+                        });
+
+                        idx += (rowsPerBlock - overlapRows);
+                        if (rowsPerBlock - overlapRows <= 0)
+                        {
+                            idx += rowsPerBlock;
+                        }
+                    }
+                }
+                else
+                {
+                    // Fallback for single-row tables
+                    var pageChunks = ChunkText(fullTable, chunkSize, overlap, page.Number, ref globalChunkIndex);
+                    foreach (var c in pageChunks)
+                    {
+                        c.ParentContent = fullTable;
+                    }
+                    chunks.AddRange(pageChunks);
+                }
+            }
+            else
+            {
+                // Normal sequential text page
+                var pageChunks = ChunkText(page.Text, chunkSize, overlap, page.Number, ref globalChunkIndex);
+                chunks.AddRange(pageChunks);
+            }
         }
 
         return chunks;

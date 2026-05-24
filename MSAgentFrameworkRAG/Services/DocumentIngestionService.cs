@@ -16,18 +16,21 @@ namespace MSAgentFrameworkRAG.Services
     {
         private readonly IDocumentService _documentService;
         private readonly IMetadataExtractionService _metadataService;
+        private readonly AppDbContext _dbContext;
         private readonly OpenAISettings _openAiSettings;
         private readonly PineconeSettings _pineconeSettings;
-        private readonly FileChunkingService _chunkingService = new();
+
 
         public DocumentIngestionService(
             IDocumentService documentService,
             IMetadataExtractionService metadataService,
+            AppDbContext dbContext,
             IOptions<OpenAISettings> openAiOptions,
             IOptions<PineconeSettings> pineconeOptions)
         {
             _documentService = documentService ?? throw new ArgumentNullException(nameof(documentService));
             _metadataService = metadataService ?? throw new ArgumentNullException(nameof(metadataService));
+            _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
             _openAiSettings = openAiOptions?.Value ?? throw new ArgumentNullException(nameof(openAiOptions));
             _pineconeSettings = pineconeOptions?.Value ?? throw new ArgumentNullException(nameof(pineconeOptions));
         }
@@ -62,9 +65,11 @@ namespace MSAgentFrameworkRAG.Services
 
                 Console.WriteLine($"[Document Ingestion] Metadata parsed: Company={doc.Company}, Type={doc.DocumentType}, Year={doc.FiscalYear}, Version={doc.Version}");
 
-                // 2. Chunk the file
-                Console.WriteLine($"[Document Ingestion] Splitting document into chunks...");
-                var chunks = _chunkingService.ReadAndChunkFile(filePath, chunkSize: 3000, overlap: 500);
+                // 2. Parse and chunk the file using the Generic Document Extraction Framework
+                Console.WriteLine($"[Document Ingestion] Parsing and chunking document via unified framework...");
+                var parser = Helpers.ParserFactory.GetParser(filePath);
+                var structuredDoc = parser.Parse(filePath);
+                var chunks = ChunkStructuredDocument(structuredDoc, chunkSize: 3000, overlap: 500);
                 doc.ChunkCount = chunks.Count;
 
                 Console.WriteLine($"[Document Ingestion] Split document into {doc.ChunkCount} chunks.");
@@ -111,6 +116,35 @@ namespace MSAgentFrameworkRAG.Services
                     }
                 }
 
+                // 3.5 Process and persist Parent Chunks in SQL Database
+                var parentCache = new Dictionary<string, string>(); // Maps parentContent -> parentId Guid
+                
+                foreach (var chunk in chunks)
+                {
+                    if (!string.IsNullOrEmpty(chunk.ParentContent))
+                    {
+                        if (!parentCache.TryGetValue(chunk.ParentContent, out var parentId))
+                        {
+                            var parentChunk = new DbParentChunk
+                            {
+                                DocumentId = documentId,
+                                Content = chunk.ParentContent
+                            };
+                            _dbContext.ParentChunks.Add(parentChunk);
+                            parentCache[chunk.ParentContent] = parentChunk.Id;
+                            parentId = parentChunk.Id;
+                        }
+                        
+                        chunk.Metadata["parentId"] = parentId;
+                    }
+                }
+                
+                if (parentCache.Count > 0)
+                {
+                    Console.WriteLine($"[Document Ingestion] Persisting {parentCache.Count} Parent Chunks to SQL Database...");
+                    await _dbContext.SaveChangesAsync().ConfigureAwait(false);
+                }
+
                 // 4. Generate Embeddings & Upsert to Pinecone
                 if (chunks.Count > 0)
                 {
@@ -134,6 +168,11 @@ namespace MSAgentFrameworkRAG.Services
                             md["documentId"] = new MetadataValue(documentId);
                             md["sourceName"] = new MetadataValue(fileName);
                             md["sourceLink"] = new MetadataValue(filePath);
+
+                            if (c.Metadata.TryGetValue("parentId", out var parentId))
+                            {
+                                md["parentId"] = new MetadataValue(parentId);
+                            }
 
                             // Semantic metadata indexes
                             md["company"] = new MetadataValue(doc.Company ?? "Unknown");
@@ -168,6 +207,91 @@ namespace MSAgentFrameworkRAG.Services
                 doc.ErrorMessage = ex.Message;
                 _documentService.AddOrUpdate(doc);
             }
+        }
+
+        private List<TextChunk> ChunkStructuredDocument(StructuredDocument doc, int chunkSize = 3000, int overlap = 500)
+        {
+            var chunks = new List<TextChunk>();
+            int globalChunkIndex = 0;
+
+            foreach (var section in doc.Sections)
+            {
+                if (section is TableSection table)
+                {
+                    if (table.Rows.Count == 0) continue;
+
+                    string fullTableMarkdown = table.ToMarkdown();
+                    var headers = table.Headers;
+                    string headersLine = "| " + string.Join(" | ", headers) + " |";
+                    string sepLine = "| " + string.Join(" | ", headers.Select(_ => "---")) + " |";
+                    
+                    int rowsPerBlock = 5;
+                    int overlapRows = 1;
+                    int idx = 0;
+
+                    while (idx < table.Rows.Count)
+                    {
+                        int count = Math.Min(rowsPerBlock, table.Rows.Count - idx);
+                        var rowSubset = table.Rows.Skip(idx).Take(count).ToList();
+
+                        var sbBlock = new System.Text.StringBuilder();
+                        sbBlock.AppendLine(headersLine);
+                        sbBlock.AppendLine(sepLine);
+                        foreach (var r in rowSubset)
+                        {
+                            sbBlock.AppendLine("| " + string.Join(" | ", r) + " |");
+                        }
+
+                        chunks.Add(new TextChunk
+                        {
+                            ChunkIndex = globalChunkIndex++,
+                            Content = sbBlock.ToString(),
+                            PageNumber = table.PageOrSlideNumber,
+                            ParentContent = fullTableMarkdown,
+                            Metadata = new Dictionary<string, string>
+                            {
+                                { "PageNumber", table.PageOrSlideNumber.ToString() },
+                                { "IsTableChild", "true" }
+                            }
+                        });
+
+                        idx += (rowsPerBlock - overlapRows);
+                        if (rowsPerBlock - overlapRows <= 0)
+                        {
+                            idx += rowsPerBlock;
+                        }
+                    }
+                }
+                else if (section is TextSection textSection)
+                {
+                    string text = textSection.ParagraphText;
+                    if (string.IsNullOrWhiteSpace(text)) continue;
+
+                    int index = 0;
+                    while (index < text.Length)
+                    {
+                        int length = Math.Min(chunkSize, text.Length - index);
+                        string chunkContent = text.Substring(index, length);
+
+                        chunks.Add(new TextChunk
+                        {
+                            ChunkIndex = globalChunkIndex++,
+                            Content = chunkContent,
+                            PageNumber = section.PageOrSlideNumber,
+                            Metadata = new Dictionary<string, string>
+                            {
+                                { "PageNumber", section.PageOrSlideNumber.ToString() }
+                            }
+                        });
+
+                        int step = chunkSize - overlap;
+                        if (step <= 0) step = chunkSize;
+                        index += step;
+                    }
+                }
+            }
+
+            return chunks;
         }
 
         private async Task UpdatePineconeLatestMetadataAsync(IndexClient index, string docId, int chunkCount, bool isLatest)

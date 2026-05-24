@@ -19,6 +19,7 @@ namespace MSAgentFrameworkRAG
         private readonly EmbeddingGenerationOptions? _embeddingOptions;
         private readonly Metadata? _filter;
         private readonly IRerankService _rerankService;
+        private readonly AppDbContext _dbContext;
         private readonly int _topK;
 
         // Stores the exact reranked, score-filtered chunks used by the LLM
@@ -30,6 +31,7 @@ namespace MSAgentFrameworkRAG
             string indexName,
             string openAIApiKey,
             IRerankService rerankService,
+            AppDbContext dbContext,
             EmbeddingGenerationOptions? embeddingOptions = null,
             Metadata? filter = null,
             string embeddingModel = "text-embedding-3-small",
@@ -39,6 +41,7 @@ namespace MSAgentFrameworkRAG
             _indexName = string.IsNullOrWhiteSpace(indexName) ? throw new ArgumentException("Index name is required.", nameof(indexName)) : indexName;
             _openAIApiKey = string.IsNullOrWhiteSpace(openAIApiKey) ? throw new ArgumentException("OpenAI API key is required.", nameof(openAIApiKey)) : openAIApiKey;
             _rerankService = rerankService ?? throw new ArgumentNullException(nameof(rerankService));
+            _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
             _embeddingOptions = embeddingOptions;
             _filter = filter;
             _embeddingModel = embeddingModel;
@@ -90,6 +93,24 @@ namespace MSAgentFrameworkRAG
                     ?? GetMetadataValue(metadata, "content")
                     ?? string.Empty;
 
+                // Parent-Child Context Swap Logic
+                var parentId = GetMetadataValue(metadata, "parentId");
+                if (!string.IsNullOrEmpty(parentId))
+                {
+                    try
+                    {
+                        var parentChunk = _dbContext.ParentChunks.FirstOrDefault(p => p.Id == parentId);
+                        if (parentChunk != null)
+                        {
+                            text = parentChunk.Content;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[Parent-Child Swap ERROR] Failed to fetch parent chunk '{parentId}': {ex.Message}");
+                    }
+                }
+
                 var chunkIndex = GetMetadataValue(metadata, "chunkIndex");
                 var pageNumber = GetMetadataValue(metadata, "pageNumber");
                 var sourceName = GetMetadataValue(metadata, "sourceName")
@@ -126,11 +147,11 @@ namespace MSAgentFrameworkRAG
         {
             var sourceName = string.IsNullOrWhiteSpace(id) ? "Pinecone search result" : $"Pinecone chunk {id}";
 
-            if (!string.IsNullOrWhiteSpace(pageNumber))
+            if (!string.IsNullOrEmpty(pageNumber))
             {
                 sourceName += $" page {pageNumber}";
             }
-            else if (!string.IsNullOrWhiteSpace(chunkIndex))
+            else if (!string.IsNullOrEmpty(chunkIndex))
             {
                 sourceName += $" chunk {chunkIndex}";
             }

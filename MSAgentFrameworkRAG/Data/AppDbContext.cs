@@ -11,6 +11,7 @@ namespace MSAgentFrameworkRAG
         public DbSet<UploadedDocument> UploadedDocuments { get; set; }
         public DbSet<DbConversation> Conversations { get; set; }
         public DbSet<DbChatMessage> ChatMessages { get; set; }
+        public DbSet<DbParentChunk> ParentChunks { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

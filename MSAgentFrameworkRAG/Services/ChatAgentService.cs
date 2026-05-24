@@ -20,19 +20,22 @@ namespace MSAgentFrameworkRAG.Services
         private readonly IRerankService _rerankService;
         private readonly OpenAISettings _openAiSettings;
         private readonly PineconeSettings _pineconeSettings;
+        private readonly AppDbContext _dbContext;
 
         public ChatAgentService(
             IConversationService conversationService,
             IRetrievalService retrievalService,
             IRerankService rerankService,
             IOptions<OpenAISettings> openAiOptions,
-            IOptions<PineconeSettings> pineconeOptions)
+            IOptions<PineconeSettings> pineconeOptions,
+            AppDbContext dbContext)
         {
             _conversationService = conversationService ?? throw new ArgumentNullException(nameof(conversationService));
             _retrievalService = retrievalService ?? throw new ArgumentNullException(nameof(retrievalService));
             _rerankService = rerankService ?? throw new ArgumentNullException(nameof(rerankService));
             _openAiSettings = openAiOptions?.Value ?? throw new ArgumentNullException(nameof(openAiOptions));
             _pineconeSettings = pineconeOptions?.Value ?? throw new ArgumentNullException(nameof(pineconeOptions));
+            _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         }
 
         public async Task<ChatResponse> ProcessChatAsync(ChatRequest request)
@@ -100,6 +103,7 @@ namespace MSAgentFrameworkRAG.Services
                 _pineconeSettings.IndexName,
                 _openAiSettings.ApiKey,
                 _rerankService,
+                _dbContext,
                 embeddingOptions: new OpenAI.Embeddings.EmbeddingGenerationOptions { Dimensions = 512 },
                 filter: filter,
                 embeddingModel: _openAiSettings.EmbeddingModel ?? "text-embedding-3-small",
@@ -119,7 +123,6 @@ namespace MSAgentFrameworkRAG.Services
                 ChatOptions = new()
                 {
                     Instructions = @"You are a highly accurate banking and insurance document assistant.
-
                             Your task is to answer user questions STRICTLY using the provided context.
 
                             IMPORTANT RULES:
@@ -143,6 +146,7 @@ namespace MSAgentFrameworkRAG.Services
                             - Do NOT summarize away critical differences between plans or providers.
                             - If the user asks for comparison-oriented information, generate a structured comparison.
                             - Keep the response concise but complete.
+                            - When extracting fees from banking documents, carefully distinguish between the Annual/Renewal Fee (what the user is billed) and the Minimum Spend threshold required to waive that fee. Do not list spend-waiver thresholds as the fee itself
 
                             MULTI-DOCUMENT RESPONSE RULES:
                             - If multiple companies/products/plans/cards/policies are found:
@@ -459,6 +463,7 @@ namespace MSAgentFrameworkRAG.Services
                 _pineconeSettings.IndexName,
                 _openAiSettings.ApiKey,
                 _rerankService,
+                _dbContext,
                 embeddingOptions: new OpenAI.Embeddings.EmbeddingGenerationOptions { Dimensions = 512 },
                 filter: filter,
                 embeddingModel: _openAiSettings.EmbeddingModel ?? "text-embedding-3-small",
