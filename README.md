@@ -590,13 +590,17 @@ To solve **Semantic Vector Dilution** (where large tables or chapters have "aver
      └───────────────────────┘ └───────────────────────┘ └───────────────────────┘
 ```
 
-### 6.3 Row-Span Table Propagation (Forward-Filling)
-In banking PDF charges sheets, card names often vertically span across multiple rows of fees. Standard line-by-line extractors leave subsequent fee rows "orphaned" without their entity name. 
-* **The Solution:** Our `PdfLayoutAnalysisService` implements **Row-Span Propagation**. It tracks visual column horizontal alignments (X-coordinates). If a line starts with a horizontal shift (indicating an empty spanned Column 0), it automatically forward-fills and prepends the active `CardName` from the cache, ensuring every single text chunk remains fully self-contained.
+### 6.3 Dynamic Column-Clustering & Multi-Column Forward-Filling
+In banking PDF charge sheets, cell values (such as card names, fees, or surcharges) often vertically span (row-span) across multiple rows of data. Traditional line-by-line layout extractors leave subsequent data cells blank and shift columns leftward, completely corrupting the table alignment and leaving chunks "orphaned" of critical context.
+*   **The Solution:** The platform implements a **Dynamic Column-Clustering Grid mapping algorithm** inside `PdfLayoutAnalysisService.cs`. It groups horizontally adjacent words into logical cells, clusters all visual cell coordinates `[Left, Right]` across all page baselines to establish a unified column grid, and aligns each baseline cell to its closest column index. A stateful multi-column cache forward-fills any vertically merged or blank cell values from the preceding rows, guaranteeing that every single text row remains structurally aligned and semantically self-contained.
 
 ### 6.4 Generic Multi-Format Document Extraction Framework
 The ingestion pipeline is completely format-agnostic. Using a **Factory Pattern** coupled with a **Unified Data Contract (`StructuredDocument`)**, the platform reads and standardizes **PDF, Word (`.docx`), Excel (`.xlsx`), and PowerPoint (`.pptx`)** files:
 * **`StructuredDocument`** maps heading streams to `TextSection` and data spreadsheets/tables to `TableSection` (utilizing standard markdown tables).
 * A single, unified parent-child slicing engine processes the contract identically for all formats, guaranteeing that any layout or table-parsing upgrades instantly work across all enterprise file types.
+
+### 6.5 Page-Boundary Table Stitching
+When long relational tables split across page breaks, the continuation page typically lacks headers, causing vector chunking models to misinterpret the data rows (e.g. hallucinating numeric data columns as new headers).
+*   **The Solution:** Our `PdfParser.cs` maintains a stateful boundary tracker. When a table is parsed on Page $N+1$ directly following a table on Page $N$ with an **identical column count**, it automatically stitches them into a single continuous `TableSection` in C# memory. It also includes repeated-header detection to automatically skip duplicate column headers reprinted at the top of the overflow page, ensuring a seamless context transition in SQL and Pinecone.
 
 ---

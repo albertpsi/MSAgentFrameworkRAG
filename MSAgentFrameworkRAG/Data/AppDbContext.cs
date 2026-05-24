@@ -20,6 +20,12 @@ namespace MSAgentFrameworkRAG
                 .WithOne()
                 .HasForeignKey(m => m.ConversationId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UploadedDocument>()
+                .HasMany(d => d.ParentChunks)
+                .WithOne()
+                .HasForeignKey(p => p.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 

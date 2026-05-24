@@ -57,6 +57,24 @@ namespace MSAgentFrameworkRAG.Services
         /// Delimits cells with vertical pipes '|' to maintain table representation in RAG text chunks.
         /// Automatically detects and propagates row-spanned Column 0 (e.g. Card Names) using X-offset forward-filling.
         /// </summary>
+        private class LogicalCell
+        {
+            public string Text { get; set; } = string.Empty;
+            public double Left { get; set; }
+            public double Right { get; set; }
+        }
+
+        private class ColumnInterval
+        {
+            public double Left { get; set; }
+            public double Right { get; set; }
+        }
+
+        /// <summary>
+        /// Parses page text structures using horizontal alignment to reconstruct cells cleanly.
+        /// Delimits cells with vertical pipes '|' to maintain table representation in RAG text chunks.
+        /// Dynamically discovers column X-coordinates and propagates row-spanned cells across all columns.
+        /// </summary>
         public string ExtractStructuredTable(Page page)
         {
             if (page == null) return string.Empty;
@@ -67,30 +85,25 @@ namespace MSAgentFrameworkRAG.Services
             var lines = GroupWordsIntoLines(words);
             if (!lines.Any()) return string.Empty;
 
-            // Detect the X-coordinate of the left-most column margin (Column 0)
-            double minLeft = lines.Where(l => l.Any()).Min(l => l[0].BoundingBox.Left);
-            double leftColumnMarginThreshold = minLeft + 15.0; // 15 points tolerance
-
-            var sb = new StringBuilder();
-            string activeEntityName = string.Empty; // Caches Column 0 (e.g. Paytm HDFC Bank)
+            // 1. Group adjacent words horizontally on each baseline into logical cells
+            var baselineCells = new List<List<LogicalCell>>();
+            var allIntervals = new List<ColumnInterval>();
 
             foreach (var line in lines)
             {
-                var rowCells = new List<string>();
+                var rowCells = new List<LogicalCell>();
                 int i = 0;
 
-                // 1. Group adjacent words horizontally into cells based on spacing
                 while (i < line.Count)
                 {
-                    var cellWords = new List<string> { line[i].Text };
+                    var cellWords = new List<Word> { line[i] };
 
-                    // Group adjacent words horizontally into a single logical cell
                     while (i < line.Count - 1)
                     {
                         double gap = line[i + 1].BoundingBox.Left - line[i].BoundingBox.Right;
-                        if (gap < 12.0) // 12 points gap corresponds to typical intra-cell spacing
+                        if (gap < 12.0) // 12 points corresponds to typical intra-cell spacing
                         {
-                            cellWords.Add(line[i + 1].Text);
+                            cellWords.Add(line[i + 1]);
                             i++;
                         }
                         else
@@ -99,29 +112,124 @@ namespace MSAgentFrameworkRAG.Services
                         }
                     }
 
-                    rowCells.Add(string.Join(" ", cellWords));
+                    var text = string.Join(" ", cellWords.Select(w => w.Text));
+                    double left = cellWords.First().BoundingBox.Left;
+                    double right = cellWords.Last().BoundingBox.Right;
+
+                    var cell = new LogicalCell { Text = text, Left = left, Right = right };
+                    rowCells.Add(cell);
+                    
+                    allIntervals.Add(new ColumnInterval { Left = left, Right = right });
                     i++;
                 }
 
-                if (rowCells.Count == 0) continue;
-
-                // 2. Row-Span Detection and Forward-Filling
-                double firstWordLeft = line[0].BoundingBox.Left;
-
-                if (firstWordLeft < leftColumnMarginThreshold)
+                if (rowCells.Any())
                 {
-                    // Column 0 is present on this baseline. Cache it as the active entity name.
-                    activeEntityName = rowCells[0];
+                    baselineCells.Add(rowCells);
+                }
+            }
+
+            if (!allIntervals.Any()) return string.Empty;
+
+            // 2. Cluster / Merge close or overlapping X-intervals across the page to define Column Grids
+            var sortedIntervals = allIntervals.OrderBy(intv => intv.Left).ToList();
+            var columns = new List<ColumnInterval>();
+
+            foreach (var intv in sortedIntervals)
+            {
+                if (!columns.Any())
+                {
+                    columns.Add(intv);
                 }
                 else
                 {
-                    // Column 0 is blank on this line due to row-spanning (starts shifted to the right).
-                    // Forward-fill by prepending the cached active entity name to maintain RAG context!
-                    rowCells.Insert(0, activeEntityName + " (cont.)");
+                    var last = columns.Last();
+                    // Merge intervals if they overlap or the gap is very small (within 15.0 points)
+                    if (intv.Left <= last.Right || (intv.Left - last.Right) < 15.0)
+                    {
+                        last.Right = Math.Max(last.Right, intv.Right);
+                    }
+                    else
+                    {
+                        columns.Add(intv);
+                    }
+                }
+            }
+
+            int numCols = columns.Count;
+            var activeRowValues = new string[numCols];
+            for (int k = 0; k < numCols; k++) activeRowValues[k] = string.Empty;
+
+            var sb = new StringBuilder();
+
+            // 3. For each baseline, map cells to their respective column grids and forward-fill if blank
+            foreach (var rowCells in baselineCells)
+            {
+                var alignedRow = new string?[numCols];
+
+                foreach (var cell in rowCells)
+                {
+                    // Map cell to the column with the maximum overlap or closest proximity
+                    int bestColIndex = -1;
+                    double maxOverlap = -1.0;
+                    double minDistance = double.MaxValue;
+
+                    for (int k = 0; k < numCols; k++)
+                    {
+                        var col = columns[k];
+                        // Calculate overlap length
+                        double overlapStart = Math.Max(cell.Left, col.Left);
+                        double overlapEnd = Math.Min(cell.Right, col.Right);
+                        double overlap = overlapEnd - overlapStart;
+
+                        if (overlap > 0)
+                        {
+                            if (overlap > maxOverlap)
+                            {
+                                maxOverlap = overlap;
+                                bestColIndex = k;
+                            }
+                        }
+                        else
+                        {
+                            // Fallback to center-to-center distance if no direct overlap (rare)
+                            double cellCenter = cell.Left + (cell.Right - cell.Left) / 2.0;
+                            double colCenter = col.Left + (col.Right - col.Left) / 2.0;
+                            double dist = Math.Abs(cellCenter - colCenter);
+                            if (dist < minDistance)
+                            {
+                                minDistance = dist;
+                                if (maxOverlap <= 0) 
+                                {
+                                    bestColIndex = k;
+                                }
+                            }
+                        }
+                    }
+
+                    if (bestColIndex != -1)
+                    {
+                        alignedRow[bestColIndex] = cell.Text;
+                    }
                 }
 
-                // Output formatted structured rows
-                sb.AppendLine(string.Join(" | ", rowCells));
+                // 4. Populate row cells using forward-filling for spanned columns
+                var finalizedRow = new string[numCols];
+                for (int k = 0; k < numCols; k++)
+                {
+                    if (alignedRow[k] != null)
+                    {
+                        activeRowValues[k] = alignedRow[k]!;
+                        finalizedRow[k] = alignedRow[k]!;
+                    }
+                    else
+                    {
+                        // Column is blank on this baseline, propagate previous active value!
+                        finalizedRow[k] = activeRowValues[k];
+                    }
+                }
+
+                sb.AppendLine(string.Join(" | ", finalizedRow));
             }
 
             return sb.ToString();

@@ -20,6 +20,9 @@ namespace MSAgentFrameworkRAG
         public string? Version { get; set; }
         public bool IsLatest { get; set; } = false;
         public int ChunkCount { get; set; } = 0;
+
+        // Navigation property for parent visual chunks
+        public List<DbParentChunk> ParentChunks { get; set; } = new();
     }
 
     public class ChatMessageInfo

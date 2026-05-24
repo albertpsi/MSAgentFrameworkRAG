@@ -87,34 +87,45 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"[Program] Failed to clean up stuck documents: {ex.Message}");
     }
 
-    //// Cold-start dynamic ADO.NET column migration
-    //var sql = @"
-    //IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'DocumentType')
-    //    ALTER TABLE UploadedDocuments ADD DocumentType NVARCHAR(MAX) NULL;
-    //IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'Company')
-    //    ALTER TABLE UploadedDocuments ADD Company NVARCHAR(MAX) NULL;
-    //IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'FiscalQuarter')
-    //    ALTER TABLE UploadedDocuments ADD FiscalQuarter NVARCHAR(MAX) NULL;
-    //IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'FiscalYear')
-    //    ALTER TABLE UploadedDocuments ADD FiscalYear INT NULL;
-    //IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'PublicationDate')
-    //    ALTER TABLE UploadedDocuments ADD PublicationDate NVARCHAR(MAX) NULL;
-    //IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'Version')
-    //    ALTER TABLE UploadedDocuments ADD Version NVARCHAR(MAX) NULL;
-    //IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'IsLatest')
-    //    ALTER TABLE UploadedDocuments ADD IsLatest BIT NOT NULL DEFAULT 0;
-    //IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'ChunkCount')
-    //    ALTER TABLE UploadedDocuments ADD ChunkCount INT NOT NULL DEFAULT 0;
-    //";
+    // Cold-start dynamic ADO.NET column and table migrations to update existing databases
+    var sql = @"
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'DocumentType')
+        ALTER TABLE UploadedDocuments ADD DocumentType NVARCHAR(MAX) NULL;
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'Company')
+        ALTER TABLE UploadedDocuments ADD Company NVARCHAR(MAX) NULL;
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'FiscalQuarter')
+        ALTER TABLE UploadedDocuments ADD FiscalQuarter NVARCHAR(MAX) NULL;
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'FiscalYear')
+        ALTER TABLE UploadedDocuments ADD FiscalYear INT NULL;
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'PublicationDate')
+        ALTER TABLE UploadedDocuments ADD PublicationDate NVARCHAR(MAX) NULL;
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'Version')
+        ALTER TABLE UploadedDocuments ADD Version NVARCHAR(MAX) NULL;
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'IsLatest')
+        ALTER TABLE UploadedDocuments ADD IsLatest BIT NOT NULL DEFAULT 0;
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UploadedDocuments') AND name = 'ChunkCount')
+        ALTER TABLE UploadedDocuments ADD ChunkCount INT NOT NULL DEFAULT 0;
+
+    IF OBJECT_ID('ParentChunks', 'U') IS NULL
+    BEGIN
+        CREATE TABLE ParentChunks (
+            Id NVARCHAR(450) PRIMARY KEY,
+            DocumentId NVARCHAR(450) NOT NULL FOREIGN KEY REFERENCES UploadedDocuments(Id) ON DELETE CASCADE,
+            Content NVARCHAR(MAX) NOT NULL,
+            CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+        );
+    END
+    ";
     
-    ////try
-    ////{
-    ////    dbContext.Database.ExecuteSqlRaw(sql);
-    ////}
-    ////catch (Exception ex)
-    ////{
-    ////    Console.WriteLine($"[Program] Cold-start database schema migration bypassed: {ex.Message}");
-    ////}
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw(sql);
+        Console.WriteLine("[Program] Dynamic database schema migration completed successfully.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Program] Dynamic database schema migration bypassed or failed: {ex.Message}");
+    }
 }
 
 // Create uploads folder inside wwwroot

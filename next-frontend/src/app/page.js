@@ -682,11 +682,20 @@ export default function Home() {
                 className="chat-doc-filter"
               >
                 <option value="">Search across all files</option>
-                {indexedDocs.map(doc => (
-                  <option key={getProp(doc, 'id')} value={getProp(doc, 'id')}>
-                    {getProp(doc, 'fileName')}
-                  </option>
-                ))}
+                 {indexedDocs.map(doc => {
+                  const docId = getProp(doc, 'id');
+                  const docFileName = getProp(doc, 'fileName');
+                  const isLatestVal = getProp(doc, 'isLatest');
+                  const hasLatestVal = isLatestVal !== undefined && isLatestVal !== null;
+                  const isActive = hasLatestVal ? (isLatestVal === true || String(isLatestVal).toLowerCase() === 'true') : true;
+                  const label = isActive ? docFileName : `${docFileName} (Archived)`;
+
+                  return (
+                    <option key={docId} value={docId}>
+                      {label}
+                    </option>
+                  );
+                })}
               </select>
             </div>
           </div>
