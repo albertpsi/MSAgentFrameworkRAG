@@ -17,17 +17,20 @@ namespace MSAgentFrameworkRAG.Services
     {
         private readonly IConversationService _conversationService;
         private readonly IRetrievalService _retrievalService;
+        private readonly IRerankService _rerankService;
         private readonly OpenAISettings _openAiSettings;
         private readonly PineconeSettings _pineconeSettings;
 
         public ChatAgentService(
             IConversationService conversationService,
             IRetrievalService retrievalService,
+            IRerankService rerankService,
             IOptions<OpenAISettings> openAiOptions,
             IOptions<PineconeSettings> pineconeOptions)
         {
             _conversationService = conversationService ?? throw new ArgumentNullException(nameof(conversationService));
             _retrievalService = retrievalService ?? throw new ArgumentNullException(nameof(retrievalService));
+            _rerankService = rerankService ?? throw new ArgumentNullException(nameof(rerankService));
             _openAiSettings = openAiOptions?.Value ?? throw new ArgumentNullException(nameof(openAiOptions));
             _pineconeSettings = pineconeOptions?.Value ?? throw new ArgumentNullException(nameof(pineconeOptions));
         }
@@ -96,10 +99,11 @@ namespace MSAgentFrameworkRAG.Services
                 pinecone,
                 _pineconeSettings.IndexName,
                 _openAiSettings.ApiKey,
+                _rerankService,
                 embeddingOptions: new OpenAI.Embeddings.EmbeddingGenerationOptions { Dimensions = 512 },
                 filter: filter,
                 embeddingModel: _openAiSettings.EmbeddingModel ?? "text-embedding-3-small",
-                topK: 10
+                topK: _pineconeSettings.QueryTopK > 0 ? _pineconeSettings.QueryTopK : 40
             );
 
             TextSearchProviderOptions textSearchOptions = new()
@@ -225,8 +229,8 @@ namespace MSAgentFrameworkRAG.Services
             var agentResponse = await agent.RunAsync(standaloneQuery, session).ConfigureAwait(false);
             var responseText = agentResponse.Text;
 
-            // 7. Retrieve citations for UI display
-            var citations = await _retrievalService.RetrieveContextAsync(standaloneQuery, request.DocumentIds).ConfigureAwait(false);
+            // 7. Retrieve the exact high-precision citations already used by the LLM
+            var citations = searchAdapter.LastSearchResults;
 
             // 8. Persist Messages in SQL Database
             var userMsg = new ChatMessageInfo
@@ -454,10 +458,11 @@ namespace MSAgentFrameworkRAG.Services
                 pinecone,
                 _pineconeSettings.IndexName,
                 _openAiSettings.ApiKey,
+                _rerankService,
                 embeddingOptions: new OpenAI.Embeddings.EmbeddingGenerationOptions { Dimensions = 512 },
                 filter: filter,
                 embeddingModel: _openAiSettings.EmbeddingModel ?? "text-embedding-3-small",
-                topK: 10
+                topK: _pineconeSettings.QueryTopK > 0 ? _pineconeSettings.QueryTopK : 40
             );
 
             TextSearchProviderOptions textSearchOptions = new()
@@ -577,8 +582,8 @@ namespace MSAgentFrameworkRAG.Services
                 }
             }
 
-            // 7. Retrieve citations for UI display
-            var citations = await _retrievalService.RetrieveContextAsync(standaloneQuery, request.DocumentIds).ConfigureAwait(false);
+            // 7. Retrieve the exact high-precision citations already used by the LLM
+            var citations = searchAdapter.LastSearchResults;
 
             // 8. Persist Messages in SQL Database
             var userMsg = new ChatMessageInfo

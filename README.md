@@ -40,24 +40,24 @@ This diagram details the interaction between the five system layers, their bound
 
 ```mermaid
 graph TB
-    User([👤 End User])
+    User(["👤 End User"])
     
     subgraph ClientLayer ["1. React Frontend UI (Next.js/Vite)"]
-        UI[React View - App.jsx]
-        API_Helper[API Client - api.js]
+        UI["React View - App.jsx"]
+        API_Helper["API Client - api.js"]
     end
     
     subgraph ProxyLayer ["2. Development Gateway / Reverse Proxy"]
-        Proxy[Vite Dev Server Proxy - /api]
+        Proxy["Vite Dev Server Proxy - /api"]
     end
 
     subgraph BackendLayer ["3. ASP.NET Core C# API & Background workers"]
-        Controllers[API Controllers<br/>Chat / Documents / Conversations]
-        Services[Core Services Layer<br/>ChatAgentService, DocumentIngestionService]
-        Quartz[Quartz.NET Background Engine]
-        DB_Context[EF Core AppDbContext]
-        S_Cache[In-Memory SessionCache]
-        Vector_Adapter[PineconeTextSearchAdapter]
+        Controllers["API Controllers - Chat / Documents / Conversations"]
+        Services["Core Services Layer - ChatAgentService, DocumentIngestionService"]
+        Quartz["Quartz.NET Background Engine"]
+        DB_Context["EF Core AppDbContext"]
+        S_Cache["In-Memory SessionCache"]
+        Vector_Adapter["PineconeTextSearchAdapter"]
     end
 
     subgraph StorageLayer ["4. Data & Vector Storage"]
@@ -67,26 +67,26 @@ graph TB
     end
 
     subgraph AILayer ["5. OpenAI Cognitive Services"]
-        OpenAI_API[OpenAI API<br/>gpt-4o-mini / text-embedding-3-small]
+        OpenAI_API["OpenAI API (gpt-4o-mini / text-embedding-3-small)"]
     end
 
-    User -->|HTTP requests / Server-Sent Events| UI
-    UI -->|JSON payloads / Stream Handlers| API_Helper
-    API_Helper -->|Relative Fetch Queries| Proxy
-    Proxy -->|Proxy Redirect (Port 61622)| Controllers
+    User -->|"HTTP requests / Server-Sent Events"| UI
+    UI -->|"JSON payloads / Stream Handlers"| API_Helper
+    API_Helper -->|"Relative Fetch Queries"| Proxy
+    Proxy -->|"Proxy Redirect (Port 61622)"| Controllers
     
-    Controllers -->|Dependency Injection| Services
-    Controllers --->|Schedules Ingestion Jobs| Quartz
-    Quartz --->|Invokes off-thread| Services
+    Controllers -->|"Dependency Injection"| Services
+    Controllers -->|"Schedules Ingestion Jobs"| Quartz
+    Quartz -->|"Invokes off-thread"| Services
     
-    Services <-->|Read / Write Transactions| DB_Context
-    Services <-->|Retrieves / Updates Sessions| S_Cache
-    DB_Context <-->|ADO.NET Connection| SQL_DB
+    Services -->|"Read / Write Transactions"| DB_Context
+    Services -->|"Retrieves / Updates Sessions"| S_Cache
+    DB_Context -->|"ADO.NET Connection"| SQL_DB
     
-    Services <-->|Generate Embeddings & Chat Completion| OpenAI_API
-    Vector_Adapter <-->|Pinecone Client SDK| Pinecone_DB
-    Services <-->|Pinecone Client SDK| Pinecone_DB
-    Vector_Adapter <-->|Generates Query Embeddings| OpenAI_API
+    Services -->|"Generate Embeddings & Chat Completion"| OpenAI_API
+    Vector_Adapter -->|"Pinecone Client SDK"| Pinecone_DB
+    Services -->|"Pinecone Client SDK"| Pinecone_DB
+    Vector_Adapter -->|"Generates Query Embeddings"| OpenAI_API
     
     style User fill:#dbeafe,stroke:#1e40af,stroke-width:2px;
     style ClientLayer fill:#f8fafc,stroke:#334155,stroke-width:2px;
@@ -306,7 +306,7 @@ sequenceDiagram
     Service->>DB: GetAll Documents
     DB-->>Service: List of Documents
     
-    Note over Service: Group by similar Company & Filename.<br/>Sort by UploadedDocumentVersionComparer:<br/>1. Fiscal Year (Desc)<br/>2. Quarter Rank<br/>3. Semantic Version<br/>4. Pub Date<br/>5. Upload Timestamp
+    Note over Service: Group by similar Company & Filename. Sort by UploadedDocumentVersionComparer (Fiscal Year, Quarter, SemVer, Pub Date, Upload Time)
     
     alt Found Older Versions in Same Family
         Service->>DB: Update isLatest status in SQL table
@@ -316,10 +316,10 @@ sequenceDiagram
         Note over Service: Flag this document as isLatest = true
     end
     
-    Note over Service: Read and split document via FileChunkingService<br/>(Size: 3000 chars, Overlap: 500 chars)
+    Note over Service: Read and split document via FileChunkingService (Size: 3000 chars, Overlap: 500 chars)
     Service->>Service: Generate Chunks
     
-    Note over Service: Generate 512-Dim Dense Embeddings<br/>via OpenAI text-embedding-3-small
+    Note over Service: Generate 512-Dim Dense Embeddings via OpenAI text-embedding-3-small
     Service->>Pinecone: Upsert Vector Batches (Metadata contains documentId, Content, company, isLatest, etc.)
     Pinecone-->>Service: Acknowledge Vector Writes
     
@@ -358,7 +358,7 @@ sequenceDiagram
         Note over Service: Use original message as search query
     end
     
-    Note over Service: Configure Pinecone Metadata Filter:<br/>- If single DocumentId: {"documentId": "ID"}<br/>- If multiple/global: {"isLatest": "true"}
+    Note over Service: Configure Pinecone Metadata Filter (Filter by single DocumentId or isLatest = true)
     
     Service->>Service: Initialize PineconeTextSearchAdapter
     Service->>Pinecone: Query Vector Search (Query Embedding, TopK = 10, Filter)

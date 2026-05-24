@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 
@@ -14,9 +14,9 @@ namespace MSAgentFrameworkRAG
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            modelBuilder.Entity<DbChatMessage>()
-                .HasOne<DbConversation>()
-                .WithMany(c => c.Messages)
+            modelBuilder.Entity<DbConversation>()
+                .HasMany(c => c.Messages)
+                .WithOne()
                 .HasForeignKey(m => m.ConversationId)
                 .OnDelete(DeleteBehavior.Cascade);
         }

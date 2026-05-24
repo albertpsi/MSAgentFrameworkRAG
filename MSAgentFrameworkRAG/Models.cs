@@ -35,6 +35,9 @@ namespace MSAgentFrameworkRAG
         public string SourceName { get; set; } = string.Empty;
         public string? SourceLink { get; set; }
         public string Text { get; set; } = string.Empty;
+        public double? Score { get; set; }
+        public double? RerankScore { get; set; }
+        public double? QueryTimeMs { get; set; }
     }
 
     public class Conversation

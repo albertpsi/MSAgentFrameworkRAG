@@ -67,12 +67,12 @@ namespace MSAgentFrameworkRAG.Services
             };
         }
 
-        public Conversation Create(string? name = null)
+        public Conversation Create(string? name = null, string? id = null)
         {
-            var id = Guid.NewGuid().ToString("N");
+            var convoId = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("N") : id;
             var dbConvo = new DbConversation
             {
-                Id = id,
+                Id = convoId,
                 Name = string.IsNullOrWhiteSpace(name) ? $"Conversation {DateTime.Now:HH:mm:ss}" : name,
                 CreatedAt = DateTime.UtcNow
             };
@@ -136,7 +136,7 @@ namespace MSAgentFrameworkRAG.Services
             var dbConvo = _dbContext.Conversations.Find(conversationId);
             if (dbConvo == null)
             {
-                Create(); // Fallback creation if not exist
+                Create(name: null, id: conversationId); // Fallback creation if not exist
             }
 
             return newSession;

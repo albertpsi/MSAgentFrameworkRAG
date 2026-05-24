@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI.Embeddings;
 using Pinecone;
@@ -14,13 +15,19 @@ namespace MSAgentFrameworkRAG.Services
     {
         private readonly OpenAISettings _openAiSettings;
         private readonly PineconeSettings _pineconeSettings;
+        private readonly IRerankService _rerankService;
+        private readonly ILogger<RetrievalService> _logger;
 
         public RetrievalService(
             IOptions<OpenAISettings> openAiOptions,
-            IOptions<PineconeSettings> pineconeOptions)
+            IOptions<PineconeSettings> pineconeOptions,
+            IRerankService rerankService,
+            ILogger<RetrievalService> logger)
         {
             _openAiSettings = openAiOptions?.Value ?? throw new ArgumentNullException(nameof(openAiOptions));
             _pineconeSettings = pineconeOptions?.Value ?? throw new ArgumentNullException(nameof(pineconeOptions));
+            _rerankService = rerankService ?? throw new ArgumentNullException(nameof(rerankService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         public async Task<List<SourceCitation>> RetrieveContextAsync(string query, string? documentId = null)
@@ -39,13 +46,15 @@ namespace MSAgentFrameworkRAG.Services
 
         public async Task<List<SourceCitation>> RetrieveContextAsync(string query, List<string>? documentIds)
         {
-            Console.WriteLine($"[Retrieval Service] Finding relevant vectors for query: '{query}'...");
-            var citations = new List<SourceCitation>();
+            _logger.LogInformation("[Retrieval Service] Finding relevant vectors for query: '{Query}'...", query);
+            var candidates = new List<SourceCitation>();
 
             try
             {
                 // 1. Generate Embeddings for the search query
-                var client = new OpenAI.Embeddings.EmbeddingClient(model: _openAiSettings.EmbeddingModel ?? "text-embedding-3-small", apiKey: _openAiSettings.ApiKey);
+                var client = new EmbeddingClient(
+                    model: _openAiSettings.EmbeddingModel ?? "text-embedding-3-small", 
+                    apiKey: _openAiSettings.ApiKey);
                 var embeddingResponse = await client.GenerateEmbeddingAsync(query).ConfigureAwait(false);
                 var queryVector = embeddingResponse.Value.ToFloats().ToArray();
 
@@ -80,16 +89,21 @@ namespace MSAgentFrameworkRAG.Services
                     filter = new Metadata { ["isLatest"] = new MetadataValue("true") };
                 }
 
-                // 4. Perform vector query
+                // 4. Perform vector query (Stage 1 - Coarse Search)
+                // Use QueryTopK from settings (e.g. 40) rather than a static TopK of 10 to ensure a robust candidate pool
+                var topK = _pineconeSettings.QueryTopK > 0 ? _pineconeSettings.QueryTopK : 40;
+                _logger.LogInformation("[Retrieval Service] querying Pinecone index for TopK = {TopK} raw matches...", topK);
+
                 var queryResponse = await index.QueryAsync(new QueryRequest
                 {
                     Vector = new ReadOnlyMemory<float>(queryVector),
-                    TopK = 10,
+                    TopK = (uint)topK,
                     IncludeMetadata = true,
                     Filter = filter
                 }).ConfigureAwait(false);
 
                 var matches = (queryResponse.Matches ?? Enumerable.Empty<ScoredVector>()).ToList();
+                _logger.LogInformation("[Retrieval Service] Found {Count} matching vectors in Pinecone.", matches.Count);
 
                 foreach (var match in matches)
                 {
@@ -116,20 +130,28 @@ namespace MSAgentFrameworkRAG.Services
                         citationName += $" Chunk {chunkIndex}";
                     }
 
-                    citations.Add(new SourceCitation
+                    candidates.Add(new SourceCitation
                     {
                         SourceName = citationName,
                         SourceLink = sourceLink,
-                        Text = content ?? ""
+                        Text = content ?? "",
+                        Score = match.Score // Store raw vector cosine similarity score for diagnostics
                     });
+                }
+
+                // 5. Invoke native Pinecone Reranking (Stage 2 - Fine Search)
+                if (candidates.Any())
+                {
+                    var rerankedCitations = await _rerankService.RerankAsync(query, candidates, CancellationToken.None).ConfigureAwait(false);
+                    return rerankedCitations;
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Retrieval Service Error] Query matching failed: {ex.Message}");
+                _logger.LogError(ex, "[Retrieval Service Error] Two-stage retrieval failed.");
             }
 
-            return citations;
+            return candidates.Take(_pineconeSettings.RerankTopN).ToList();
         }
     }
 }

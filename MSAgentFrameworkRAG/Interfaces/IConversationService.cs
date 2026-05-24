@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI;
 
@@ -8,7 +8,7 @@ namespace MSAgentFrameworkRAG.Interfaces
     {
         List<Conversation> GetAll();
         Conversation? Get(string id);
-        Conversation Create(string? name = null);
+        Conversation Create(string? name = null, string? id = null);
         void AddMessage(string conversationId, ChatMessageInfo msg);
         bool Delete(string id);
         bool Rename(string id, string name);

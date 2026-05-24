@@ -20,8 +20,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Enable Serilog as the logging provider
 builder.Host.UseSerilog();
 
-// Configure SQL Server Database Context with Connection Pooling to prevent pool exhaustion
-builder.Services.AddDbContextPool<AppDbContext>(options =>
+// Configure SQL Server Database Context with standard isolated lifetimes to prevent pooling concurrency issues
+builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Configure Options Pattern for Secrets
@@ -36,6 +36,7 @@ builder.Services.AddScoped<IDocumentIngestionService, DocumentIngestionService>(
 builder.Services.AddScoped<IRetrievalService, RetrievalService>();
 builder.Services.AddScoped<IChatAgentService, ChatAgentService>();
 builder.Services.AddScoped<IMetadataExtractionService, MetadataExtractionService>();
+builder.Services.AddScoped<IRerankService, RerankService>();
 
 // Configure Controllers
 builder.Services.AddControllers();

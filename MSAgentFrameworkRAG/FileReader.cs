@@ -138,7 +138,12 @@ public class FileChunkingService
                 }
             });
 
-            index += chunkSize - overlap;
+            int step = chunkSize - overlap;
+            if (step <= 0)
+            {
+                step = chunkSize; // Fallback to avoid division by zero or infinite loops if overlap >= chunkSize
+            }
+            index += step;
         }
 
         return chunks;
