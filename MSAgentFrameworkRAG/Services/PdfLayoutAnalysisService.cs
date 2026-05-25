@@ -30,9 +30,9 @@ namespace MSAgentFrameworkRAG.Services
             foreach (var line in lines)
             {
                 int gaps = 0;
-                for (int i = 0; i < line.Count - 1; i++)
+                for (int i = 0; i < line.Words.Count - 1; i++)
                 {
-                    double gap = line[i + 1].BoundingBox.Left - line[i].BoundingBox.Right;
+                    double gap = line.Words[i + 1].BoundingBox.Left - line.Words[i].BoundingBox.Right;
                     if (gap >= largeGapThreshold)
                     {
                         gaps++;
@@ -70,6 +70,24 @@ namespace MSAgentFrameworkRAG.Services
             public double Right { get; set; }
         }
 
+        private class BaselineLine
+        {
+            public List<Word> Words { get; set; } = new();
+            public double Y { get; set; }
+        }
+
+        private class BaselineCellsWithY
+        {
+            public List<LogicalCell> Cells { get; set; } = new();
+            public double Y { get; set; }
+        }
+
+        private class AlignedRowWithY
+        {
+            public string?[] Cells { get; set; } = null!;
+            public double Y { get; set; }
+        }
+
         /// <summary>
         /// Parses page text structures using horizontal alignment to reconstruct cells cleanly.
         /// Delimits cells with vertical pipes '|' to maintain table representation in RAG text chunks.
@@ -86,7 +104,7 @@ namespace MSAgentFrameworkRAG.Services
             if (!lines.Any()) return string.Empty;
 
             // 1. Group adjacent words horizontally on each baseline into logical cells
-            var baselineCells = new List<List<LogicalCell>>();
+            var baselineCells = new List<BaselineCellsWithY>();
             var allIntervals = new List<ColumnInterval>();
 
             foreach (var line in lines)
@@ -94,16 +112,16 @@ namespace MSAgentFrameworkRAG.Services
                 var rowCells = new List<LogicalCell>();
                 int i = 0;
 
-                while (i < line.Count)
+                while (i < line.Words.Count)
                 {
-                    var cellWords = new List<Word> { line[i] };
+                    var cellWords = new List<Word> { line.Words[i] };
 
-                    while (i < line.Count - 1)
+                    while (i < line.Words.Count - 1)
                     {
-                        double gap = line[i + 1].BoundingBox.Left - line[i].BoundingBox.Right;
+                        double gap = line.Words[i + 1].BoundingBox.Left - line.Words[i].BoundingBox.Right;
                         if (gap < 12.0) // 12 points corresponds to typical intra-cell spacing
                         {
-                            cellWords.Add(line[i + 1]);
+                            cellWords.Add(line.Words[i + 1]);
                             i++;
                         }
                         else
@@ -118,14 +136,22 @@ namespace MSAgentFrameworkRAG.Services
 
                     var cell = new LogicalCell { Text = text, Left = left, Right = right };
                     rowCells.Add(cell);
-                    
-                    allIntervals.Add(new ColumnInterval { Left = left, Right = right });
                     i++;
                 }
 
                 if (rowCells.Any())
                 {
-                    baselineCells.Add(rowCells);
+                    baselineCells.Add(new BaselineCellsWithY { Cells = rowCells, Y = line.Y });
+                    
+                    // Only use lines with multiple cells to define the column grids.
+                    // This prevents single full-width lines (e.g. paragraphs, page titles) from merging columns.
+                    if (rowCells.Count > 1)
+                    {
+                        foreach (var cell in rowCells)
+                        {
+                            allIntervals.Add(new ColumnInterval { Left = cell.Left, Right = cell.Right });
+                        }
+                    }
                 }
             }
 
@@ -157,17 +183,15 @@ namespace MSAgentFrameworkRAG.Services
             }
 
             int numCols = columns.Count;
-            var activeRowValues = new string[numCols];
-            for (int k = 0; k < numCols; k++) activeRowValues[k] = string.Empty;
 
-            var sb = new StringBuilder();
+            // 3. For each baseline, map cells to their respective column grids
+            var alignedRows = new List<AlignedRowWithY>();
 
-            // 3. For each baseline, map cells to their respective column grids and forward-fill if blank
-            foreach (var rowCells in baselineCells)
+            foreach (var rowInfo in baselineCells)
             {
                 var alignedRow = new string?[numCols];
 
-                foreach (var cell in rowCells)
+                foreach (var cell in rowInfo.Cells)
                 {
                     // Map cell to the column with the maximum overlap or closest proximity
                     int bestColIndex = -1;
@@ -213,19 +237,83 @@ namespace MSAgentFrameworkRAG.Services
                     }
                 }
 
-                // 4. Populate row cells using forward-filling for spanned columns
-                var finalizedRow = new string[numCols];
-                for (int k = 0; k < numCols; k++)
+                alignedRows.Add(new AlignedRowWithY { Cells = alignedRow, Y = rowInfo.Y });
+            }
+
+            // 4. Combine consecutive rows representing multi-line wrapped cells based on vertical gap (under 20.0 points)
+            var mergedRows = new List<string?[]>();
+            if (alignedRows.Any())
+            {
+                var currentMergedRow = new string?[numCols];
+                Array.Copy(alignedRows[0].Cells, currentMergedRow, numCols);
+                double lastY = alignedRows[0].Y;
+
+                for (int r = 1; r < alignedRows.Count; r++)
                 {
-                    if (alignedRow[k] != null)
+                    var row = alignedRows[r];
+                    double gap = lastY - row.Y;
+
+                    if (gap < 20.0)
                     {
-                        activeRowValues[k] = alignedRow[k]!;
-                        finalizedRow[k] = alignedRow[k]!;
+                        // Merge current row cells with the active merged row cells
+                        for (int k = 0; k < numCols; k++)
+                        {
+                            if (row.Cells[k] != null)
+                            {
+                                if (currentMergedRow[k] != null)
+                                {
+                                    currentMergedRow[k] = (currentMergedRow[k] + " " + row.Cells[k]).Trim();
+                                }
+                                else
+                                {
+                                    currentMergedRow[k] = row.Cells[k];
+                                }
+                            }
+                        }
                     }
                     else
                     {
-                        // Column is blank on this baseline, propagate previous active value!
-                        finalizedRow[k] = activeRowValues[k];
+                        // Commit the current merged row
+                        mergedRows.Add(currentMergedRow);
+
+                        // Start a new merged row
+                        currentMergedRow = new string?[numCols];
+                        Array.Copy(row.Cells, currentMergedRow, numCols);
+                    }
+
+                    lastY = row.Y;
+                }
+                mergedRows.Add(currentMergedRow);
+            }
+
+            var activeRowValues = new string[numCols];
+            for (int k = 0; k < numCols; k++) activeRowValues[k] = string.Empty;
+
+            var sb = new StringBuilder();
+
+            // 5. Populate row cells using forward-filling for spanned columns
+            foreach (var rowCells in mergedRows)
+            {
+                var finalizedRow = new string[numCols];
+                for (int k = 0; k < numCols; k++)
+                {
+                    if (rowCells[k] != null)
+                    {
+                        activeRowValues[k] = rowCells[k]!;
+                        finalizedRow[k] = rowCells[k]!;
+                    }
+                    else
+                    {
+                        // ONLY forward-fill Column 0 (e.g. Card Names) for spanned rows.
+                        // Other columns (fees, spend limits) should remain empty if blank in the PDF.
+                        if (k == 0)
+                        {
+                            finalizedRow[k] = activeRowValues[k];
+                        }
+                        else
+                        {
+                            finalizedRow[k] = string.Empty;
+                        }
                     }
                 }
 
@@ -235,22 +323,23 @@ namespace MSAgentFrameworkRAG.Services
             return sb.ToString();
         }
 
-        private List<List<Word>> GroupWordsIntoLines(List<Word> words)
+        private List<BaselineLine> GroupWordsIntoLines(List<Word> words)
         {
-            var lines = new List<List<Word>>();
+            var lines = new List<BaselineLine>();
             var sortedWords = words.OrderByDescending(w => w.BoundingBox.Bottom).ToList();
 
             while (sortedWords.Count > 0)
             {
                 var currentWord = sortedWords[0];
+                double baselineY = currentWord.BoundingBox.Bottom;
                 
                 // Group words sitting within 4.0 points vertical difference of the baseline
                 var lineWords = sortedWords
-                    .Where(w => Math.Abs(w.BoundingBox.Bottom - currentWord.BoundingBox.Bottom) <= 4.0)
+                    .Where(w => Math.Abs(w.BoundingBox.Bottom - baselineY) <= 4.0)
                     .OrderBy(w => w.BoundingBox.Left)
                     .ToList();
 
-                lines.Add(lineWords);
+                lines.Add(new BaselineLine { Words = lineWords, Y = baselineY });
                 sortedWords.RemoveAll(lineWords.Contains);
             }
 

@@ -147,6 +147,7 @@ namespace MSAgentFrameworkRAG.Services
                             - If the user asks for comparison-oriented information, generate a structured comparison.
                             - Keep the response concise but complete.
                             - When extracting fees from banking documents, carefully distinguish between the Annual/Renewal Fee (what the user is billed) and the Minimum Spend threshold required to waive that fee. Do not list spend-waiver thresholds as the fee itself
+                            - For credit card fee queries, explicitly search for fields: Joining Fee, Annual Fee, Renewal Fee, and any Waiver/Spend Waiver thresholds. If a field exists in the context with a value of NIL, 0, or Waived, make sure to report that exact value clearly in your response.
 
                             MULTI-DOCUMENT RESPONSE RULES:
                             - If multiple companies/products/plans/cards/policies are found:
@@ -332,6 +333,7 @@ namespace MSAgentFrameworkRAG.Services
                         - benefits
                         - penalty
                         - renewal
+                    - If the user query is about card fees or annual/joining charges, enrich the standalone query string with standard domain synonyms (e.g. 'annual fee', 'joining fee', 'renewal fee', 'membership fee', 'charges', 'NIL', 'waived') to maximize vector match retrieval rates.
                     - Prefer concise but retrieval-rich phrasing.
                     - Preserve exact financial and insurance terminology.
 
@@ -508,6 +510,8 @@ namespace MSAgentFrameworkRAG.Services
                             - Do NOT summarize away critical differences between plans or providers.
                             - If the user asks for comparison-oriented information, generate a structured comparison.
                             - Keep the response concise but complete.
+                            - When extracting fees from banking documents, carefully distinguish between the Annual/Renewal Fee (what the user is billed) and the Minimum Spend threshold required to waive that fee. Do not list spend-waiver thresholds as the fee itself
+                            - For credit card fee queries, explicitly search for fields: Joining Fee, Annual Fee, Renewal Fee, and any Waiver/Spend Waiver thresholds. If a field exists in the context with a value of NIL, 0, or Waived, make sure to report that exact value clearly in your response.
 
                             MULTI-DOCUMENT RESPONSE RULES:
                             - If multiple companies/products/plans/cards/policies are found:
