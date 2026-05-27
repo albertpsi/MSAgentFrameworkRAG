@@ -35,8 +35,6 @@ namespace MSAgentFrameworkRAG.Helpers
             {
                 ".pdf" => new PdfParser(),
                 ".docx" => new WordParser(),
-                ".xlsx" or ".xls" => new ExcelParser(),
-                ".pptx" or ".ppt" => new PptParser(),
                 _ => new PlainTextParser()
             };
         }

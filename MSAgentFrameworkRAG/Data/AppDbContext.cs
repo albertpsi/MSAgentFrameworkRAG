@@ -26,6 +26,7 @@ namespace MSAgentFrameworkRAG
                 .WithOne()
                 .HasForeignKey(p => p.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
+
         }
     }
 

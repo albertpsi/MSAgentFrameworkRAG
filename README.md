@@ -1,6 +1,6 @@
-# MSAgentFrameworkRAG — Enterprise-Grade Multi-Agentic RAG Platform
+# MSAgentFrameworkRAG — Enterprise-Grade Contract Analysis RAG Platform
 
-An advanced, production-ready Retrieval-Augmented Generation (RAG) platform engineered to process, version, index, and reason over complex banking, insurance, and compliance documents. Built upon a decoupled full-stack architecture using a **Next.js/React SPA** on the frontend, a **C# ASP.NET Core** backend with **Microsoft Agents AI (AIAgent)**, **OpenAI (GPT-4o-mini & Text-Embedding-3-Small)**, and a **Pinecone Vector Database**, this platform supports multi-document query processing, automated metadata extraction, and precise document versioning.
+An advanced, production-ready Retrieval-Augmented Generation (RAG) platform engineered to process, version, index, and analyze complex legal, compliance, and vendor contracts. Built upon a decoupled full-stack architecture using a **Next.js/React SPA** on the frontend, a **C# ASP.NET Core** backend with **Microsoft Agents AI (AIAgent)**, **OpenAI (gpt-4o-mini & text-embedding-3-small)**, and a **Pinecone Vector Database**, this platform supports multi-document legal query processing, state-of-the-art Two-Stage Retrieval (dense vector similarity search + Pinecone cross-attention reranking), automated metadata extraction, and precise contract versioning and amendment control.
 
 ---
 
@@ -11,29 +11,29 @@ An advanced, production-ready Retrieval-Augmented Generation (RAG) platform engi
    - [1.3 Deep-Dive Layer Breakdown](#13-deep-dive-layer-breakdown)
 2. [🤖 Agentic Orchestration Framework (LLD)](#2-agentic-orchestration-framework-lld)
    - [2.1 Low-Level Service Contract Class Diagram](#21-low-level-service-contract-class-diagram)
-   - [2.2 Micro-Agent Functional Specifications](#22-micro-agent-functional-specifications)
+   - [2.2 Detailed AI Agent Specifications](#22-detailed-ai-agent-specifications)
 3. [🔄 Dynamic System Flow Pipelines](#3-dynamic-system-flow-pipelines)
-   - [A. Asynchronous Ingestion & Document Freshness Pipeline](#a-asynchronous-ingestion--document-freshness-pipeline)
+   - [A. Asynchronous Contract Ingestion & version control Pipeline](#a-asynchronous-contract-ingestion--version-control-pipeline)
    - [B. Conversational RAG Chat & Retrieval Loop](#b-conversational-rag-chat--retrieval-loop)
 4. [🗄️ Database, Schema & Vector Design](#4-database-schema--vector-design)
    - [4.1 Relational Schema Map (SQL Server via EF Core)](#41-relational-schema-map-sql-server-via-ef-core)
    - [4.2 Vector Schema (Pinecone Index Metadata)](#42-vector-schema-pinecone-index-metadata)
 5. [🚀 Getting Started & Setup](#5-getting-started--setup)
-6. [🔬 Advanced RAG Engineering & Layout Optimization](#6-advanced-rag-engineering--layout-optimization)
-
+6. [🔬 Advanced RAG Engineering & Contract Optimization](#6-advanced-rag-engineering--contract-optimization)
 
 ---
 
 ## 1. Executive System Architecture (HLSA)
 
 ### 1.1 Architectural Highlights & Decoupled Design
-To prepare the RAG platform for massive, highly scalable multi-agent environments, the system was fully refactored from a monolithic approach into a highly decoupled **Controller-Service-Repository** pattern. All core features are wrapped in dependency-injected (DI) services:
-* **`IDocumentIngestionService`**: Handles ingestion tasks, file chunking, embeds text, and writes indices to Pinecone.
+To prepare the RAG platform for massive, highly scalable multi-agent environments, the system is structured using a highly decoupled **Controller-Service-Repository** pattern. All core features are wrapped in dependency-injected (DI) services:
+* **`IDocumentIngestionService`**: Handles contract ingestion tasks, processes file text chunking, embeds text blocks, and writes indices to Pinecone.
 * **`IRetrievalService`**: Decouples the Pinecone vector similarity querying from the controllers and agents, generating balanced citation objects.
-* **`IRerankService`**: Integrates with the native Pinecone Inference API to perform a second-stage fine search, ranking coarse search results and filtering out low-relevance chunks using a strict configurable threshold.
-* **`IChatAgentService`**: Orchestrates stateful multi-turn dialogs, coordinates semantic query rewriting, and runs the AI Agents.
-* **`IDocumentService` / `IConversationService`**: Handle standard relational queries for documents and chat logs in SQL Server.
-* **`SessionCache`**: In-memory singleton caching preserving Microsoft Agents AI state.
+* **`IRerankService`**: Integrates with the native Pinecone Inference API to perform a second-stage fine search, ranking coarse search results using cross-attention and filtering out low-relevance chunks via a configurable threshold.
+* **`IChatAgentService`**: Orchestrates stateful multi-turn dialogs, coordinates semantic query rewriting, and runs the Microsoft AI Agents.
+* **`IMetadataExtractionService`**: Extracts structured, normalized contract metadata fields from raw uploaded agreement files (PDF or Word) using the dedicated extraction agent.
+* **`IDocumentService` / `IConversationService`**: Handle standard relational queries for documents and chat logs in the SQL database.
+* **`SessionCache`**: In-memory singleton caching preserving Microsoft Agents AI state across conversations.
 
 ---
 
@@ -44,18 +44,19 @@ This diagram details the interaction between the five system layers, their bound
 graph TB
     User(["👤 End User"])
     
-    subgraph ClientLayer ["1. React Frontend UI (Next.js/Vite)"]
-        UI["React View - App.jsx"]
+    subgraph ClientLayer ["1. React Frontend UI (Next.js SPA)"]
+        UI["React View - page.js"]
         API_Helper["API Client - api.js"]
+        Theme_Sync["Theme Synchronizer (Light/Dark)"]
     end
     
     subgraph ProxyLayer ["2. Development Gateway / Reverse Proxy"]
-        Proxy["Vite Dev Server Proxy - /api"]
+        Proxy["Next.js/Vite Dev Server Proxy - /api"]
     end
 
     subgraph BackendLayer ["3. ASP.NET Core C# API & Background workers"]
         Controllers["API Controllers - Chat / Documents / Conversations"]
-        Services["Core Services - ChatAgent, Ingestion, Retrieval, Rerank"]
+        Services["Core Services - ChatAgent, Ingestion, Retrieval, Rerank, MetadataExtractor"]
         Quartz["Quartz.NET Background Engine"]
         DB_Context["EF Core AppDbContext"]
         S_Cache["In-Memory SessionCache"]
@@ -75,6 +76,7 @@ graph TB
 
     User -->|"HTTP requests / Server-Sent Events"| UI
     UI -->|"JSON payloads / Stream Handlers"| API_Helper
+    UI -->|"Saves Theme in Local Storage"| Theme_Sync
     API_Helper -->|"Relative Fetch Queries"| Proxy
     Proxy -->|"Proxy Redirect (Port 61622)"| Controllers
     
@@ -105,39 +107,30 @@ graph TB
 
 ### 1.3 Deep-Dive Layer Breakdown
 
-#### Layer 1: Client Application (React SPA)
-* **Stack:** React 18, Next.js / Vite, Lucide Icons, and Vanilla CSS with premium glassmorphic styling (frosty translucent backdrops, glowing status badges, and localized scrolls).
-* **`App.jsx`**: Manages state hooks (`conversations`, `documents`, `messages`, `chatDocFilter`, `activeConversationId`, `isSending`) and schedules polling intervals to monitor upload progress.
+#### Layer 1: Client Application (Next.js React SPA)
+* **Stack:** React 18, Next.js, Lucide Icons, and Vanilla CSS with premium glassmorphic styling (frosty translucent backdrops, glowing status badges, and synchronized Light/Dark themes).
+* **`page.js`**: Manages state hooks (`conversations`, `documents`, `messages`, `chatDocFilter`, `activeConversationId`, `isDarkMode`) and schedules polling intervals to monitor upload progress.
+* **Light & Dark Theme System**: Built with modern CSS custom variables. Synergizes with user preferences and caches state dynamically in `localStorage` ('theme' key).
 * **`api.js`**: Low-level integration module. Packs file selections into `FormData` envelopes for multipart endpoint consumption and includes the case-insensitive helper `getProp(obj, key)` to guarantee total resilience against backend JSON serialization casing mismatches.
 
 #### Layer 2: Development Gateway / Proxy
-* **Technology:** Vite dev server reverse proxy configurations.
-* **Responsibility:** Intercepts relative client calls `/api` and forwards them to C# API endpoint `http://localhost:61622`. This solves CORS issues and prevents JSON deserializer failures caused when relative paths fallback incorrectly to static HTML pages.
+* **Technology:** Next.js dev server configurations.
+* **Responsibility:** Intercepts relative client calls `/api` and forwards them to the C# API endpoint `http://localhost:61622`. This solves CORS issues and prevents JSON deserializer failures caused when relative paths fallback incorrectly to static HTML pages.
 
 #### Layer 3: C# Web API Core (ASP.NET Core API)
 * **Stack:** .NET 8.0/10.0, Microsoft Agents AI framework, Quartz.NET Scheduler, Pinecone .NET SDK.
 * **`Program.cs`**: Declares CORS policy, DI service registrations, Quartz jobs, and database setup, recovering from stuck states (e.g. marking "Processing" files as "Failed" on system restarts).
-* **Modular Clean Directory Segregation:** To maintain enterprise code standards, the backend has been structured into clean, segregated, functional subdirectories:
+* **Modular Clean Directory Segregation:**
   * `Data/` ── Relational DB Context (`AppDbContext.cs`).
   * `Models/` ── Logical domain schemas (`Models.cs`) and search chunk models (`TextChunk.cs`).
   * `Settings/` ── Options pattern configurations (`Settings.cs`).
   * `Jobs/` ── Background scheduler workers (`FileIngestionJob.cs`).
   * `Caching/` ── Stateful memory cache adapters (`SessionCache.cs`).
   * `Search/` ── Dense vector embedding generation (`Embeddings.cs`) and search adapters (`SearchAdapter.cs`).
-  * `Helpers/` ── Multi-format layout parser engines (`FileReader.cs`).
+  * `Helpers/` ── Multi-format layout parser engines (`PdfParser.cs`, `WordParser.cs`, `ParserFactory.cs`).
 * **Two-Stage Retrieval (Vector Search + Native Pinecone Reranking)**: To maximize retrieval accuracy, the backend implements a state-of-the-art two-stage retrieval pipeline. When a query is initiated:
   1. **Stage 1 (Coarse Search):** The rewritten search query is vectorized via OpenAI's `text-embedding-3-small` and used to query Pinecone for a broad set of candidate chunks (configured by `QueryTopK`, e.g., 40 matches).
   2. **Stage 2 (Fine Reranking):** The candidate chunks are sent to the native `IRerankService`, which invokes the Pinecone Inference API with the `bge-reranker-v2-m3` model. Chunks are scored and filtered using a high-precision relevance threshold (`RerankScoreThreshold`, e.g., 0.5) to keep only the top `RerankTopN` most relevant segments, mitigating LLM context clutter and avoiding hallucinations.
-
-#### Layer 4: Storage Layer
-* **Local Disk (`wwwroot/uploads/`)**: Caches uploaded documents safely for background processing and file chunking.
-* **SQL Server**: Keeps conversational logs, citations, and document metadata.
-* **Pinecone DB**: Holds vectorized chunks with dense metadata fields for semantic lookup.
-
-#### Layer 5: Cognitive & Inference Services
-* **OpenAI Embeddings (`text-embedding-3-small`)**: Generates 512-dimension vectors representing text blocks.
-* **OpenAI Completions (`gpt-4o-mini`)**: Powers the reasoning engine, grounding conversations in context retrieved from Pinecone.
-* **Pinecone Inference (`bge-reranker-v2-m3`)**: Evaluates cross-attention semantic relevance between the query and retrieved context chunks, providing precise fine-grained ranking scores.
 
 ---
 
@@ -250,7 +243,7 @@ classDiagram
     RerankService ..|> IRerankService
     ChatAgentService ..|> IChatAgentService
     MetadataExtractionService ..|> IMetadataExtractionService
-
+ 
     ChatAgentService --> IConversationService
     ChatAgentService --> IRetrievalService
     ChatAgentService --> IRerankService
@@ -264,54 +257,86 @@ classDiagram
 
 ---
 
-### 2.2 Micro-Agent Functional Specifications
+### 2.2 Detailed AI Agent Specifications
 
-The system utilizes four distinct **Microsoft Agents AI** (`AIAgent`) instances, coordinating to process data, rewrite queries, and deliver highly cited responses:
+The system utilizes four distinct **Microsoft Agents AI** (`AIAgent`) instances, coordinating to process contract uploads, optimize query paths, title active discussions, and deliver highly cited, jargon-free legal analysis:
 
-#### 1. Metadata Extraction Agent
-* **Class:** `MetadataExtractionService` ([MetadataExtractionService.cs](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Services/MetadataExtractionService.cs))
-* **Underlying Model:** `gpt-4o-mini`
-* **Agent Creation:** Initialized using `client.AsAIAgent()` with custom `ChatClientAgentOptions` mapping instructions.
-* **Execution Boundary:** Invoked synchronously inside Quartz's background worker on the first **30,000 characters** extracted from documents (PDF, Docx, or txt).
-* **System Persona & Rules:** Strict JSON parsing engine. Instructed to normalize and standardize company names, document types, publication dates, and versions. Synonyms like *"MITC"*, *"Cardmember Agreement"*, or *"Most Important Terms & Conditions"* are dynamically mapped to `Credit Card Terms And Conditions`. Outputs a standardized normalized name: `<CompanyName>_<DocumentType>`.
-* **Output Contract:**
+| Agent | Class/Method | Trigger Boundary | Underlying Model | Primary System Prompt | Response Format / Output |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **1. Contract Metadata Extraction Agent** | `MetadataExtractionService` | Synchronously runs on the first **5 pages (up to 30,000 characters)** of any uploaded PDF or Word document. | `gpt-4o-mini` | Strict contract parsing guidelines. Normalizes parties, title, canonical agreement type, effective/signing dates, governing law, jurisdiction, status, amendment tracking, versioning, and standardized file names. | Strict serialized JSON object mapping exact database models (e.g. `partyA`, `partyB`, `governingLaw`, `effectiveDate`, `version`). |
+| **2. Query Rewrite Agent** | `ChatAgentService.RewriteQueryAsync` | Triggered on incoming chat messages *if and only if* prior dialogue history exists. Analyzes the last **5 historical messages** and the latest user query. | `gpt-4o-mini` | `ContractPrompts.QueryRewriteInstructions`. Instructed to resolve pronouns ("it", "this SLA", "both agreements") and convert follow-up questions into fully qualified standalone search queries. | A **single standalone query string** optimized for dense vector search (e.g., `"Microsoft SLA and AWS SLA termination terms"`). No explanations, markdown, or conversational fluff. |
+| **3. Session Title Agent** | `ChatAgentService.GenerateChatTitleAsync` | Triggered asynchronously on the first user query of a conversation thread. | `gpt-4o-mini` | `ContractPrompts.TitleInstructions`. Synthesizes the initial user intent into a concise sidebar title. | A **1 to 3 word title** (e.g., `"Liability Comparison"` or `"NDA Confidentiality"`), free of quotes, punctuation, or markdown. |
+| **4. RAG Support Chat Agent** | `ChatAgentService` | Triggered on every user turn inside the conversational panel. Connects with `TextSearchProvider` to query Pinecone vectors + Pinecone Reranking + SQL parent swapping. | `gpt-4o-mini` | `ContractPrompts.RagInstructions`. Strict legal analysis assistant. Grounded exclusively in retrieved context. Mandates plain-English summaries explaining complex legal concepts (indemnification, covenants) to non-legal persons. | Rich structured **Markdown**. Prefers multi-contract comparison tables, concise bullets for single-contract facts, clear citations (`[Source: <Doc> page <N>]`), and layperson translation columns. |
+
+---
+
+### Detailed Agent Flows and Output Examples
+
+#### 1. Contract Metadata Extraction Agent
+* **How it is called:** Inside [DocumentIngestionService.cs](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Services/DocumentIngestionService.cs), after parsing the file to text, the service calls `_metadataService.ExtractMetadataAsync(filePath, fileName)`.
+* **Flow:** The agent reads up to 30,000 characters of the contract's beginning, extracts standard legal parameters, resolves synonyms, canonicalizes agreement types, and outputs a strict JSON block.
+* **Input Text Sample:**
+  > "SERVICES AGREEMENT. This Services Agreement (the 'Agreement') is entered into as of May 10, 2026 (the 'Effective Date') by and between Acme Corp, a Delaware corporation ('Acme') and Zenith Solutions LLC, a California limited liability company ('Provider'). This agreement supersedes the Vendor Agreement dated January 15, 2024. Governing law shall be the laws of the State of New York. The parties agree to submit dispute resolution to the courts of New York County..."
+* **Agent Response JSON:**
   ```json
   {
-    "company": "State Bank Of India (SBI)",
-    "documentType": "Credit Card Charges And Fees",
-    "version": "2.5",
-    "fileName": "State_Bank_Of_India_SBI_Credit_Card_Charges_And_Fees",
-    "fiscalQuarter": "N/A",
-    "fiscalYear": 0,
-    "publicationDate": "2025-06"
+    "fileName": "Acme_Corp_Zenith_Solutions_LLC_Master_Services_Agreement",
+    "partyA": "Acme Corp",
+    "partyB": "Zenith Solutions LLC",
+    "agreementTitle": "Services Agreement",
+    "agreementType": "Master Services Agreement",
+    "effectiveDate": "2026-05-10",
+    "executionDate": "2026-05-10",
+    "expirationDate": "Unknown",
+    "governingLaw": "New York",
+    "jurisdiction": "New York County",
+    "contractStatus": "active",
+    "amendmentNumber": "Unknown",
+    "supersedesDocument": "Vendor Agreement dated January 15, 2024",
+    "version": "1.0"
   }
   ```
 
 #### 2. Query Rewrite Agent
-* **Method:** `ChatAgentService.RewriteQueryAsync` ([ChatAgentService.cs#L261](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Services/ChatAgentService.cs#L261))
-* **Underlying Model:** `gpt-4o-mini`
-* **Agent Creation:** Instantiated dynamically using the `client.AsAIAgent()` wrapper.
-* **Execution Boundary:** Triggered on incoming messages *if and only if* prior dialogue history exists in the SQL database. Takes the last **5 historical messages** and the latest user query.
-* **System Persona & Rules:** Resolves relative references, pronouns, and ellipses (e.g. resolving *"Compare it with SBI SimplyClick"* following a discussion on *"HDFC Tata Neu"* to *"Comparison of HDFC Tata Neu and SBI SimplyClick credit cards annual fees and benefits"*). Generates a **single standalone query string** optimized for vector search without explaining itself or returning conversational filler.
+* **How it is called:** Triggered in `ChatAgentService.cs` during blocking (`ProcessChatAsync`) or streaming (`ProcessChatStreamAsync`) chat requests, before running the vector search adapter.
+* **Flow:** Takes conversational message history + active user request -> outputs vector-ready keywords.
+* **Input Conversation History:**
+  - **User:** "Tell me about the Zenith Services Agreement."
+  - **Assistant:** "The Services Agreement between Acme Corp and Zenith Solutions is active, effective May 10, 2026, and governed by New York law."
+  - **User:** "What about its governing law and jurisdiction?"
+* **Agent Standalone Response:**
+  ```text
+  Acme Corp Zenith Solutions Services Agreement governing law jurisdiction venue dispute resolution
+  ```
 
 #### 3. Session Title Agent
-* **Method:** `ChatAgentService.GenerateChatTitleAsync` ([ChatAgentService.cs#L623](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Services/ChatAgentService.cs#L623))
-* **Underlying Model:** `gpt-4o-mini`
-* **Execution Boundary:** Triggered asynchronously on the first turn of a conversation.
-* **System Persona & Rules:** Analyzes the user's initial question and generates a clean summary sidebar header. Constraint: **Exactly 1 to 3 words** without quotes, punctuation, or markdown.
+* **How it is called:** Executed on the first message turn in `ChatAgentService.cs` to dynamically name the active chat conversation in the navigation sidebar.
+* **Flow:** Summarizes first query -> returns exact 1-to-3 words.
+* **Input Query:** "Can you compare the liability limits and caps in the Microsoft SLA and AWS SLA?"
+* **Agent Standalone Response:**
+  ```text
+  Liability Cap Comparison
+  ```
 
-#### 4. RAG Support Chat Agent (RAGSupportAgent)
-* **Class:** `ChatAgentService` ([ChatAgentService.cs#L16](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Services/ChatAgentService.cs#L16))
-* **Underlying Model:** `gpt-4o-mini`
-* **Knowledge Retrieval hook:** Integrates `TextSearchProvider` from `Microsoft.Agents.AI` containing the `PineconeTextSearchAdapter`. Performs vector search *before* invoking the LLM core.
-* **System Persona & Rules:** Factual banking and insurance assistant. Strictly answers using only retrieved text chunks. If facts are absent, it replies: *"The requested information is not available in the provided documents."* Multi-document aware: groups information by provider, constructs clear markdown comparison tables, preserves exact numbers, and appends citations in the format `[Source: <DocumentName>]`.
+#### 4. RAG Support Chat Agent
+* **How it is called:** Executed during every turn of the chat interface. It has a custom `AIContextProvider` named `TextSearchProvider` which runs the `searchAdapter.SearchAsync()` function first to load Pinecone and SQL chunks into the LLM context.
+* **Flow:** Vectorizes rewritten query -> Broad-match retrieves 40 chunks -> Performs parent-child context swap -> Reranks candidates down to Top 10 with score > 0.5 -> LLM processes context -> Streams formatted output.
+* **Agent Response Output Example:**
+  ```markdown
+  Based on the retrieved contracts, here is a comparison of the termination clauses:
+
+  | Document | Clause / Topic | Extracted Text | Summary (Plain English Breakdown) | Source |
+  | :--- | :--- | :--- | :--- | :--- |
+  | **Acme Corp / Zenith Solutions LLC**<br>*Master Services Agreement* | Termination for Convenience | "Either party may terminate this Agreement without cause upon ninety (90) days prior written notice." | **Termination without reason permitted:** Both parties can end the contract at any time for no reason. However, they must give the other party at least **90 days' notice** in writing. | [Source: Acme_Corp_Zenith_Solutions_LLC_Master_Services_Agreement page 4] |
+  | **Acme Corp / Zenith Solutions LLC**<br>*First Amendment* | Amendment to Termination | "Section 4.2 of the Agreement is hereby amended to replace 'ninety (90) days' with 'one hundred twenty (120) days'." | **Notice period extended:** This amendment increases the notice required to end the agreement without cause from 90 days to **120 days**. All other terms remain active. | [Source: Acme_Corp_Zenith_Solutions_LLC_Master_Services_Agreement_First_Amendment page 1] |
+  ```
 
 ---
 
 ## 3. 🔄 Dynamic System Flow Pipelines
 
-### A. Asynchronous Ingestion & Document Freshness Pipeline
-Extracts semantic metadata, performs fuzzy family matching, ranks version history to toggle `isLatest` status, and uploads vectors into Pinecone.
+### A. Asynchronous Contract Ingestion & Version Control Pipeline
+Extracts semantic contract metadata, performs fuzzy family matching, ranks version history to toggle `isLatest` status, and uploads vectors into Pinecone.
 
 ```mermaid
 sequenceDiagram
@@ -336,12 +361,12 @@ sequenceDiagram
     
     Service->>MetaAgent: Run Metadata Agent (Sample First 30K Chars)
     MetaAgent-->>Service: Return JSON Metadata
-    Service->>DB: Save Parsed Metadata (Company, DocType, Version, PublicationDate)
+    Service->>DB: Save Parsed Metadata (Parties, Title, Type, EffectiveDate, Version, etc.)
     
     Service->>DB: GetAll Documents
     DB-->>Service: List of Documents
     
-    Note over Service: Group by similar Company & Filename. Sort by UploadedDocumentVersionComparer (Fiscal Year, Quarter, SemVer, Pub Date, Upload Time)
+    Note over Service: Group by similar Party Set & Agreement Title. Sort by UploadedDocumentVersionComparer (Amendment Number, Effective Date, Execution Date, Version, Upload Time)
     
     alt Found Older Versions in Same Family
         Service->>DB: Update isLatest status in SQL table
@@ -355,14 +380,20 @@ sequenceDiagram
     Service->>Service: Generate Chunks
     
     Note over Service: Generate 512-Dim Dense Embeddings via OpenAI text-embedding-3-small
-    Service->>Pinecone: Upsert Vector Batches (Metadata contains documentId, Content, company, isLatest, etc.)
+    Service->>Pinecone: Upsert Vector Batches (Metadata contains documentId, Content, parties, isLatest, etc.)
     Pinecone-->>Service: Acknowledge Vector Writes
     
     Service->>DB: Update Status to "Indexed"
 ```
 
-* **Dynamic DB Schema Altering:** EF Core's `dbContext.Database.EnsureCreated()` does not alter existing database schemas if tables already exist. On startup, a raw ADO.NET query checks the catalog and appends the new columns to the `UploadedDocuments` table if missing, maintaining backward compatibility.
-* **Deterministic Vector updates:** When a version shift occurs, the system utilizes the `ChunkCount` column to build deterministic vector IDs as `$"{documentId}_chunk_{chunkIndex}"` and triggers parallel metadata updates in Pinecone (throttled by `SemaphoreSlim` to prevent network choking).
+* **Contract Versioning & Family Matching:** The system dynamically links contracts into the same family (`IsSameDocumentFamily()`) if they share symmetric contracting parties (`partyA` and `partyB` matched regardless of order), same canonical `agreementType`, and fuzzy-matching agreement titles.
+* **Amendment & Chronological Sorting Comparison:** Version ranking is calculated deterministically via `UploadedDocumentVersionComparer`. It sorts by:
+  1. `AmendmentNumber` first (using regex and mapping textual names like "First Amendment" -> 1, "Second Amendment" -> 2).
+  2. `EffectiveDate` (chronologically parsing dates).
+  3. `ExecutionDate` (signing date).
+  4. `Version` (semantic version arrays extracted e.g. "2.0.1" -> `[2, 0, 1]`).
+  5. `UploadedAt` timestamp (as a final fallback).
+  The latest chronologically sorted contract is marked `IsLatest = true`, and older files are marked `IsLatest = false`. Version updates propagate to Pinecone using parallel `UpdateAsync` calls throttled by a `SemaphoreSlim` limit of 10.
 
 ---
 
@@ -408,6 +439,8 @@ sequenceDiagram
     Adapter->>PineconeVector: Query Index (Vector, TopK = 40, Filter)
     PineconeVector-->>Adapter: Return Coarse Matches (ScoredVector List)
     
+    Note over Adapter: Parent-Child Context Swap (Fetches Full Parent Table from SQL DB if parentId exists)
+    
     Adapter->>Reranker: RerankAsync(query, candidates)
     Reranker->>PineconeInf: Inference.RerankAsync (bge-reranker-v2-m3)
     PineconeInf-->>Reranker: Return Ranked Candidates & Scores
@@ -444,8 +477,7 @@ sequenceDiagram
   filter = new Metadata { ["documentId"] = new MetadataValue(innerFilter) };
   filter["isLatest"] = new MetadataValue("true");
   ```
-  If no filters are provided, it falls back to a global search querying only files marked `isLatest = "true"`. If a single ID is selected, it bypasses the `isLatest` check entirely, allowing the user to search through historical archived reports.
-* **Diversification Search Adapter:** For multi-file selections, the custom `PineconeTextSearchAdapter` scales up `queryTopK` and runs a round-robin source-diversification algorithm to prevent a single document from dominating context feeds.
+  If a single document ID is selected, it bypasses the `isLatest` check entirely, allowing the user to search through historical archived agreements.
 * **Two-Stage Precision Citations:** Since the AI context is derived from the custom `PineconeTextSearchAdapter` with integrated `IRerankService`, the agent's precise search outputs are automatically cached inside `LastSearchResults`. These are converted back to a structured citation list, mapping vector scores, reranker confidence metrics, and round-trip calculation durations for total transparency.
 
 ---
@@ -458,17 +490,25 @@ The relational system is declared in [AppDbContext.cs](file:///d:/MSAgentFramewo
 ```
 ┌────────────────────────────────────────────────────────┐
 │                   UploadedDocuments                    │
-├────────────────────────────────────────────────────────┤
+│────────────────────────────────────────────────────────│
 │ Id : NVARCHAR(450) [PK]                                │
 │ FileName : NVARCHAR(MAX)                               │
 │ Status : NVARCHAR(MAX) (Pending/Processing/Indexed)    │
 │ ErrorMessage : NVARCHAR(MAX) [Nullable]                │
 │ UploadedAt : DATETIME2                                 │
-│ DocumentType : NVARCHAR(MAX) [Nullable]                │
-│ Company : NVARCHAR(MAX) [Nullable]                     │
-│ FiscalQuarter : NVARCHAR(MAX) [Nullable]               │
-│ FiscalYear : INT [Nullable]                            │
-│ PublicationDate : NVARCHAR(MAX) [Nullable]             │
+│ PartyA : NVARCHAR(MAX) [Nullable]                      │
+│ PartyB : NVARCHAR(MAX) [Nullable]                      │
+│ AgreementTitle : NVARCHAR(MAX) [Nullable]              │
+│ AgreementType : NVARCHAR(MAX) [Nullable]               │
+│ EffectiveDate : NVARCHAR(MAX) [Nullable]               │
+│ ExecutionDate : NVARCHAR(MAX) [Nullable]               │
+│ ExpirationDate : NVARCHAR(MAX) [Nullable]              │
+│ GoverningLaw : NVARCHAR(MAX) [Nullable]                │
+│ Jurisdiction : NVARCHAR(MAX) [Nullable]                │
+│ ContractStatus : NVARCHAR(MAX) [Nullable]              │
+│ AmendmentNumber : NVARCHAR(MAX) [Nullable]             │
+│ SupersedesDocument : NVARCHAR(MAX) [Nullable]          │
+│ ContractMetadataJson : NVARCHAR(MAX) [Nullable]        │
 │ Version : NVARCHAR(MAX) [Nullable]                     │
 │ IsLatest : BIT                                         │
 │ ChunkCount : INT                                       │
@@ -485,14 +525,14 @@ The relational system is declared in [AppDbContext.cs](file:///d:/MSAgentFramewo
                                              │ CitationsJson : NVARCHAR(MAX) [Null] │
                                              └──────────────────────────────────────┘
 ```
-* **Citations Persistence & Diagnostic Metadata:** Nested citation structures (`List<SourceCitation>`) are serialized as a string and stored inside `CitationsJson` to avoid table join overhead on fast UI loads. Each citation includes:
-  - `SourceName`: The display name of the document and specific page/chunk reference.
+
+* **Citations & Diagnostics:** Nested citation structures (`List<SourceCitation>`) are serialized as a string and stored inside `CitationsJson` to avoid table join overhead on fast UI loads. Each citation includes:
+  - `SourceName`: Display name of the document and specific page/chunk reference.
   - `SourceLink`: Local server link to the original file for download/preview.
-  - `Text`: The exact text context chunk supplied to the LLM.
-  - `Score`: The Stage 1 cosine similarity vector score (relative alignment in dense vector space).
-  - `RerankScore`: The Stage 2 cross-attention score (range 0 to 1, indicating literal semantic answering suitability).
-  - `QueryTimeMs`: The processing latency in milliseconds.
-* **Cascading Deletes:** Deleting a `DbConversation` cascades and deletes all related `DbChatMessage` records dynamically.
+  - `Text`: Exact text context chunk supplied to the LLM.
+  - `Score`: Stage 1 cosine similarity vector score.
+  - `RerankScore`: Stage 2 cross-attention score (range 0 to 1, indicating literal semantic answering suitability).
+  - `QueryTimeMs`: Processing latency in milliseconds.
 
 ---
 
@@ -503,12 +543,23 @@ Vectors are generated using OpenAI `text-embedding-3-small` with 512 dimensions.
 |---|---|---|
 | `documentId` | `String` | Guid linking the vector back to the SQL database. |
 | `chunkIndex` | `String` | Local sequence number of the text chunk. |
-| `pageNumber` | `String` | The physical page the chunk belongs to (parsed from PDF). |
+| `pageNumber` | `String` | The physical page the chunk belongs to. |
 | `Content` | `String` | Raw text segment representing this chunk. |
-| `sourceName` | `String` | The standardized document name for frontend display. |
+| `sourceName` | `String` | Normalized document name for frontend display. |
 | `sourceLink` | `String` | Local path of the stored file. |
-| `company` | `String` | Normalized organization name (extracted by agent). |
-| `documentType`| `String` | Standardized category of the document (extracted by agent). |
+| `parentId` | `String` | Optional ID linking to the original full parent markdown chunk in SQL Server. |
+| `partyA` | `String` | Normalized primary contracting party (extracted by agent). |
+| `partyB` | `String` | Normalized secondary contracting party (extracted by agent). |
+| `agreementTitle`| `String` | Title from the contract heading (extracted by agent). |
+| `agreementType` | `String` | Canonicalized agreement category (extracted by agent). |
+| `effectiveDate` | `String` | Date the agreement becomes effective (extracted by agent). |
+| `executionDate` | `String` | Signing/execution date if stated separately (extracted by agent). |
+| `expirationDate`| `String` | Expiry date only when explicitly stated (extracted by agent). |
+| `governingLaw` | `String` | Governing law clause value (extracted by agent). |
+| `jurisdiction`  | `String` | Forum, courts, or dispute jurisdiction (extracted by agent). |
+| `contractStatus`| `String` | Allowed values: 'active', 'expired', 'amended', 'terminated', 'unknown'. |
+| `amendmentNumber`| `String`| Amendment sequence value (extracted by agent). |
+| `supersedesDocument`| `String`| Referenced prior agreement/document (extracted by agent). |
 | `version` | `String` | Extracted revision version (e.g. `2.5`). |
 | `isLatest` | `String` | String flag (`"true"` / `"false"`) to govern freshness filters. |
 
@@ -563,18 +614,16 @@ Add connection details and two-stage retrieval settings in your [appsettings.jso
 
 ---
 
-## 6. 🔬 Advanced RAG Engineering & Layout Optimization
-
-To achieve 100% factual accuracy on complex, structured financial sheets and insurance documents, the platform incorporates three cutting-edge RAG engineering patterns:
+## 6. 🔬 Advanced RAG Engineering & Contract Optimization
 
 ### 6.1 Two-Stage Retrieval & Pinecone Reranking
 Vector search alone (`text-embedding-3-small` cosine similarity) often ranks context based on keyword overlap, bringing in irrelevant noise. We implement a **Two-Stage Precision Pipeline**:
 1. **Stage 1 (Coarse Retrieval):** Vector search fetches a broad pool of candidates (`QueryTopK = 40`) from Pinecone.
-2. **Stage 2 (Fine Reranking):** Candidates are sent to the native Pinecone Inference API powered by the **`bge-reranker-v2-m3`** cross-attention model. It scores candidates against the user query, and filters out low-relevance noise via a calibrated threshold (`RerankScoreThreshold = 0.25`), serving only the top `RerankTopN = 10` high-fidelity chunks to the LLM.
+2. **Stage 2 (Fine Reranking):** Candidates are sent to the native Pinecone Inference API powered by the **`bge-reranker-v2-m3`** cross-attention model. It scores candidates against the user query, and filters out low-relevance noise via a calibrated threshold (`RerankScoreThreshold = 0.50`), serving only the top `RerankTopN = 10` high-fidelity chunks to the LLM.
 
 ### 6.2 Parent-Child (Hierarchical) Retrieval Architecture
 To solve **Semantic Vector Dilution** (where large tables or chapters have "averaged out" vector meanings that fail specific queries), we decouple search from reading:
-* **The Parents (SQL Database):** The entire structured Markdown/JSON table or document section is stored as a `DbParentChunk` in SQL Server.
+* **The Parents (SQL Database):** The entire structured Markdown table or document section is stored as a `DbParentChunk` in SQL Server.
 * **The Children (Pinecone):** Small 5-row blocks with column headers prepended are vectorized in Pinecone, containing a `parentId` pointing back to SQL.
 * **The Context Swap:** When a child chunk matches in Pinecone, the `SearchAdapter` fetches the **full Parent Table** from SQL and swaps the context. The LLM receives complete, structurally aligned grids instead of fragmented sentences.
 
@@ -590,17 +639,17 @@ To solve **Semantic Vector Dilution** (where large tables or chapters have "aver
      └───────────────────────┘ └───────────────────────┘ └───────────────────────┘
 ```
 
-### 6.3 Dynamic Column-Clustering & Multi-Column Forward-Filling
-In banking PDF charge sheets, cell values (such as card names, fees, or surcharges) often vertically span (row-span) across multiple rows of data. Traditional line-by-line layout extractors leave subsequent data cells blank and shift columns leftward, completely corrupting the table alignment and leaving chunks "orphaned" of critical context.
-*   **The Solution:** The platform implements a **Dynamic Column-Clustering Grid mapping algorithm** inside `PdfLayoutAnalysisService.cs`. It groups horizontally adjacent words into logical cells, clusters all visual cell coordinates `[Left, Right]` across all page baselines to establish a unified column grid, and aligns each baseline cell to its closest column index. A stateful multi-column cache forward-fills any vertically merged or blank cell values from the preceding rows, guaranteeing that every single text row remains structurally aligned and semantically self-contained.
-
-### 6.4 Generic Multi-Format Document Extraction Framework
-The ingestion pipeline is completely format-agnostic. Using a **Factory Pattern** coupled with a **Unified Data Contract (`StructuredDocument`)**, the platform reads and standardizes **PDF, Word (`.docx`), Excel (`.xlsx`), and PowerPoint (`.pptx`)** files:
+### 6.3 Generic Multi-Format Document Ingestion Factory
+The ingestion pipeline is completely format-agnostic. Using a **Factory Pattern** coupled with a **Unified Data Contract (`StructuredDocument`)**, the platform reads and standardizes **PDF and Word (`.docx`)** contract files:
 * **`StructuredDocument`** maps heading streams to `TextSection` and data spreadsheets/tables to `TableSection` (utilizing standard markdown tables).
-* A single, unified parent-child slicing engine processes the contract identically for all formats, guaranteeing that any layout or table-parsing upgrades instantly work across all enterprise file types.
+* A single, unified parent-child slicing engine processes the contract identically for all formats, guaranteeing that any layout upgrades instantly work across all enterprise file types.
 
-### 6.5 Page-Boundary Table Stitching
-When long relational tables split across page breaks, the continuation page typically lacks headers, causing vector chunking models to misinterpret the data rows (e.g. hallucinating numeric data columns as new headers).
-*   **The Solution:** Our `PdfParser.cs` maintains a stateful boundary tracker. When a table is parsed on Page $N+1$ directly following a table on Page $N$ with an **identical column count**, it automatically stitches them into a single continuous `TableSection` in C# memory. It also includes repeated-header detection to automatically skip duplicate column headers reprinted at the top of the overflow page, ensuring a seamless context transition in SQL and Pinecone.
-
----
+### 6.4 Premium Frontend Badges & Table-Column Styling
+* **Contract-Specific Information Badges**: The Next.js frontend is optimized to present contract details cleanly. The document items in the sidebar display dynamic badges for `Active` / `Archived` (reflecting the `IsLatest` state), `Agreement Type` mapping (such as Master Services Agreement or Non-Disclosure Agreement), and `Version` numbers. It also adds a custom `handshake` icon connecting `partyA / partyB` and a calendar view detailing `Effective Date` strings.
+* **Anti-Column Wrapping Styling**: Standard markdown parsing in chat bubbles often leads to squeezed, vertically-wrapped table columns that are unreadable. Our `globals.css` specifies strict percentage and minimum width attributes for our comparison layout:
+  - first columns (Document context): 15% width, min 140px.
+  - second columns (Clause / Topic): 15% width, min 130px.
+  - third columns (Extracted Text): 35% width, min 250px.
+  - fourth columns (Summary Breakdown): 20% width, min 180px.
+  - fifth columns (Source links): 15% width, min 140px.
+  This maintains standard horizontal scrollable premium tables in both light and dark modes.

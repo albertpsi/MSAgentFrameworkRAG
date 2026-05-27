@@ -16,6 +16,28 @@ import {
 export default function Home() {
   // --- STATE HOOKS ---
   const [conversations, setConversations] = useState([]);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  // --- THEME SYNC ---
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+      setIsDarkMode(true);
+    } else {
+      setIsDarkMode(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const html = document.documentElement;
+    if (isDarkMode) {
+      html.classList.remove('light-theme');
+      html.classList.add('dark-theme');
+    } else {
+      html.classList.remove('dark-theme');
+      html.classList.add('light-theme');
+    }
+  }, [isDarkMode]);
   const [documents, setDocuments] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [activeConvoDetail, setActiveConvoDetail] = useState(null);
@@ -575,11 +597,11 @@ export default function Home() {
               onClick={(e) => e.stopPropagation()}
               className="file-input"
               multiple
-              accept=".pdf,.docx,.txt,.md,.csv,.json"
+              accept=".pdf,.docx"
             />
             <i className="fa-solid fa-cloud-arrow-up drop-icon"></i>
             <p className="drop-text">Drag & drop files or <span>browse</span></p>
-            <p className="drop-subtext">PDF, DOCX, TXT, MD, CSV, JSON</p>
+            <p className="drop-subtext">PDF or DOCX contracts</p>
           </div>
 
           <div className="documents-list">
@@ -604,20 +626,19 @@ export default function Home() {
                 const docId = getProp(doc, 'id');
                 const docFileName = getProp(doc, 'fileName');
                 const docStatus = getProp(doc, 'status');
-                const docType = getProp(doc, 'documentType');
+                const agreementType = getProp(doc, 'agreementType');
+                const partyA = getProp(doc, 'partyA');
+                const partyB = getProp(doc, 'partyB');
+                const effectiveDate = getProp(doc, 'effectiveDate');
                 const isLatestVal = getProp(doc, 'isLatest');
-                const fiscalYear = getProp(doc, 'fiscalYear');
-                const fiscalQuarter = getProp(doc, 'fiscalQuarter');
                 const versionNum = getProp(doc, 'version');
 
                 const hasLatestVal = isLatestVal !== undefined && isLatestVal !== null;
                 const isActive = hasLatestVal ? (isLatestVal === true || String(isLatestVal).toLowerCase() === 'true') : true;
                 const version = versionNum !== undefined && versionNum !== null ? `v${versionNum}` : '';
-
-                const fiscalText = [
-                  fiscalYear ? `FY${fiscalYear}` : null,
-                  fiscalQuarter ? `Q${fiscalQuarter}` : null
-                ].filter(Boolean).join(' • ');
+                const partyText = [partyA, partyB]
+                  .filter(p => p && String(p).toLowerCase() !== 'unknown')
+                  .join(' / ');
 
                 return (
                   <div key={docId} className="document-item">
@@ -633,9 +654,9 @@ export default function Home() {
                       <span className={`badge ${isActive ? 'badge-active' : 'badge-archived'}`}>
                         {isActive ? 'Active' : 'Archived'}
                       </span>
-                      {docType && (
-                        <span className="badge badge-type" title={`Document Type: ${docType}`}>
-                          {docType}
+                      {agreementType && (
+                        <span className="badge badge-type" title={`Agreement Type: ${agreementType}`}>
+                          {agreementType}
                         </span>
                       )}
                       {version && (
@@ -645,10 +666,17 @@ export default function Home() {
                       )}
                     </div>
 
-                    {fiscalText && (
+                    {partyText && (
+                      <div className="doc-fiscal-row">
+                        <i className="fa-regular fa-handshake"></i>
+                        <span>{partyText}</span>
+                      </div>
+                    )}
+
+                    {effectiveDate && String(effectiveDate).toLowerCase() !== 'unknown' && (
                       <div className="doc-fiscal-row">
                         <i className="fa-regular fa-calendar-days"></i>
-                        <span>{fiscalText}</span>
+                        <span>Effective {effectiveDate}</span>
                       </div>
                     )}
                   </div>
@@ -674,6 +702,26 @@ export default function Home() {
             </div>
           </div>
           <div className="header-actions">
+            <button
+              onClick={() => {
+                setIsDarkMode(prev => {
+                  const next = !prev;
+                  localStorage.setItem('theme', next ? 'dark' : 'light');
+                  return next;
+                });
+              }}
+              className="theme-toggle-btn"
+              title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              aria-label="Toggle Theme"
+              type="button"
+            >
+              {isDarkMode ? (
+                <i className="fa-solid fa-sun text-warning-icon"></i>
+              ) : (
+                <i className="fa-solid fa-moon text-dark-icon"></i>
+              )}
+            </button>
+
             <div className="filter-dropdown-container">
               <i className="fa-solid fa-filter dropdown-icon"></i>
               <select
@@ -682,7 +730,7 @@ export default function Home() {
                 className="chat-doc-filter"
               >
                 <option value="">Search across all files</option>
-                 {indexedDocs.map(doc => {
+                {indexedDocs.map(doc => {
                   const docId = getProp(doc, 'id');
                   const docFileName = getProp(doc, 'fileName');
                   const isLatestVal = getProp(doc, 'isLatest');
@@ -700,7 +748,6 @@ export default function Home() {
             </div>
           </div>
         </header>
-
         {/* Message History */}
         <section className="chat-messages">
           {!activeConvoDetail || (getProp(activeConvoDetail, 'messages') || []).length === 0 ? (
@@ -708,14 +755,14 @@ export default function Home() {
               <div className="welcome-logo">
                 <i className="fa-solid fa-robot"></i>
               </div>
-              <h2>Ask RAG Pipeline Demo Support Agent</h2>
-              <p>Welcome! Begin chatting now. The MS Agent Framework reads from the Pinecone vector space to deliver context-backed answers in real-time streaming.</p>
+              <h2>Ask Contract RAG Assistant</h2>
+              <p>Upload contract documents and ask source-backed questions about clauses, parties, dates, obligations, and comparisons.</p>
               
               <div className="welcome-steps">
                 <div className="step-card">
                   <span className="step-num">1</span>
-                  <h3>Upload Knowledge</h3>
-                  <p>Upload PDFs, Word files, or plain text to parse and index into Pinecone vectors.</p>
+                  <h3>Upload Contracts</h3>
+                  <p>Upload PDF or DOCX agreements to parse and index into Pinecone vectors.</p>
                 </div>
                 <div className="step-card">
                   <span className="step-num">2</span>

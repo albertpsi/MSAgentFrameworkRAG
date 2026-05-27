@@ -1,7 +1,37 @@
 /* CSS Global variables for clean custom design system */
-:root {
+:root, .light-theme {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8fafc;
+    --bg-card: #ffffff;
+    --bg-glass: rgba(255, 255, 255, 0.85);
+    --border-color: rgba(15, 23, 42, 0.08);
+    --accent-color: #7928ca;
+    --accent-gradient: linear-gradient(135deg, #7928ca 0%, #ff007a 100%);
+    --accent-light: rgba(121, 40, 202, 0.08);
+    
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    
+    --success-color: #10b981;
+    --warning-color: #f59e0b;
+    --error-color: #ef4444;
+    --info-color: #3b82f6;
+    
+    --font-outfit: 'Outfit', sans-serif;
+    --font-jakarta: 'Plus Jakarta Sans', sans-serif;
+    --shadow-premium: 0 4px 20px rgba(15, 23, 42, 0.05);
+    --transition-smooth: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    --scrollbar-thumb: rgba(0, 0, 0, 0.12);
+    --table-header-bg: rgba(121, 40, 202, 0.06);
+    --table-header-border: rgba(121, 40, 202, 0.2);
+    --text-accent-sub: #7928ca;
+}
+
+.dark-theme {
     --bg-primary: #0a0c16;
     --bg-secondary: #121528;
+    --bg-card: rgba(255, 255, 255, 0.02);
     --bg-glass: rgba(22, 27, 54, 0.6);
     --border-color: rgba(255, 255, 255, 0.08);
     --accent-color: #8c52ff;
@@ -17,10 +47,11 @@
     --error-color: #ff1744;
     --info-color: #2979ff;
     
-    --font-outfit: 'Outfit', sans-serif;
-    --font-jakarta: 'Plus Jakarta Sans', sans-serif;
     --shadow-premium: 0 10px 30px rgba(0, 0, 0, 0.5);
-    --transition-smooth: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+    --table-header-bg: rgba(140, 82, 255, 0.08);
+    --table-header-border: rgba(140, 82, 255, 0.25);
+    --text-accent-sub: #bfa3ff;
 }
 
 * {
@@ -362,16 +393,16 @@ body {
     flex-direction: column;
     align-items: stretch;
     padding: 12px;
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: 10px;
     transition: var(--transition-smooth);
 }
 
 .document-item:hover {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(140, 82, 255, 0.2);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    background: var(--bg-secondary);
+    border-color: var(--accent-color);
+    box-shadow: var(--shadow-premium);
 }
 
 .doc-header {
@@ -574,14 +605,59 @@ body {
     display: inline-block;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.theme-toggle-btn {
+    background: rgba(0, 0, 0, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    color: var(--text-primary);
+}
+
+.theme-toggle-btn:hover {
+    background: rgba(0, 0, 0, 0.06);
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.dark-theme .theme-toggle-btn {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.dark-theme .theme-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.text-warning-icon {
+    color: #f59e0b;
+    font-size: 16px;
+}
+
+.text-dark-icon {
+    color: #475569;
+    font-size: 16px;
+}
+
 .filter-dropdown-container {
     display: flex;
     align-items: center;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: 10px;
     padding: 6px 14px;
     gap: 10px;
+    box-shadow: var(--shadow-premium);
 }
 
 .dropdown-icon {
@@ -1003,8 +1079,8 @@ body {
     margin: 20px 0;
     border-radius: 12px;
     border: 1px solid var(--border-color);
-    background: rgba(14, 17, 34, 0.4);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    background: var(--bg-card);
+    box-shadow: var(--shadow-premium);
     backdrop-filter: blur(10px);
     max-width: 100%;
 }
@@ -1019,7 +1095,7 @@ body {
     border-bottom-right-radius: 12px;
 }
 .table-container::-webkit-scrollbar-thumb {
-    background: rgba(140, 82, 255, 0.3);
+    background: var(--scrollbar-thumb);
     border-radius: 10px;
 }
 .table-container::-webkit-scrollbar-thumb:hover {
@@ -1033,14 +1109,15 @@ body {
     font-size: 13px;
     text-align: left;
     color: var(--text-primary);
+    table-layout: fixed;
 }
 
 .premium-table th {
-    background: rgba(140, 82, 255, 0.08);
+    background: var(--table-header-bg);
     color: var(--text-primary);
     font-weight: 700;
     padding: 14px 18px;
-    border-bottom: 2px solid rgba(140, 82, 255, 0.25);
+    border-bottom: 2px solid var(--table-header-border);
     font-family: var(--font-outfit);
     text-transform: uppercase;
     font-size: 11px;
@@ -1060,11 +1137,41 @@ body {
 }
 
 .premium-table tr:hover {
-    background: rgba(140, 82, 255, 0.03);
+    background: var(--bg-secondary);
 }
 
 .premium-table tr:last-child td {
     border-bottom: none;
+}
+
+/* Precise Column Widths to Prevent wrapping into broken columns */
+.premium-table th:nth-child(1),
+.premium-table td:nth-child(1) {
+    width: 15%;
+    min-width: 140px;
+    word-break: break-word;
+}
+.premium-table th:nth-child(2),
+.premium-table td:nth-child(2) {
+    width: 15%;
+    min-width: 130px;
+    word-break: break-word;
+}
+.premium-table th:nth-child(3),
+.premium-table td:nth-child(3) {
+    width: 35%;
+    min-width: 250px;
+}
+.premium-table th:nth-child(4),
+.premium-table td:nth-child(4) {
+    width: 20%;
+    min-width: 180px;
+}
+.premium-table th:nth-child(5),
+.premium-table td:nth-child(5) {
+    width: 15%;
+    min-width: 140px;
+    word-break: break-word;
 }
 
 /* Inline typography tweaks inside tables */
@@ -1091,13 +1198,13 @@ body {
 
 .msg-bubble h2 {
     font-size: 18px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--border-color);
     padding-bottom: 6px;
 }
 
 .msg-bubble h3 {
     font-size: 15px;
-    color: #bfa3ff; /* Soft pastel accent color for subheaders */
+    color: var(--text-accent-sub);
 }
 
 .msg-bubble h4 {
@@ -1118,7 +1225,7 @@ body {
 /* Horizontal rule premium styling */
 .msg-divider {
     border: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--border-color);
     margin: 18px 0;
     width: 100%;
 }

@@ -92,6 +92,12 @@ namespace MSAgentFrameworkRAG.Services
                     "[Rerank Service] Returning {Count} high-relevance chunks out of {Total} candidates after score filter (>= {Threshold}).", 
                     finalCitations.Count, candidates.Count, threshold);
 
+                if (!finalCitations.Any())
+                {
+                    _logger.LogWarning("[Rerank Service] 0 chunks passed the relevance threshold. Falling back to top 3 raw candidate chunks.");
+                    return candidates.Take(Math.Min(3, candidates.Count)).ToList();
+                }
+
                 return finalCitations;
             }
             catch (Exception ex)

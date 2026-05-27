@@ -11,12 +11,20 @@ namespace MSAgentFrameworkRAG
         public string? ErrorMessage { get; set; }
         public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
 
-        // Semantic Metadata fields
-        public string? DocumentType { get; set; }
-        public string? Company { get; set; }
-        public string? FiscalQuarter { get; set; }
-        public int? FiscalYear { get; set; }
-        public string? PublicationDate { get; set; }
+        // Contract metadata fields
+        public string? PartyA { get; set; }
+        public string? PartyB { get; set; }
+        public string? AgreementTitle { get; set; }
+        public string? AgreementType { get; set; }
+        public string? EffectiveDate { get; set; }
+        public string? ExecutionDate { get; set; }
+        public string? ExpirationDate { get; set; }
+        public string? GoverningLaw { get; set; }
+        public string? Jurisdiction { get; set; }
+        public string? ContractStatus { get; set; }
+        public string? AmendmentNumber { get; set; }
+        public string? SupersedesDocument { get; set; }
+        public string? ContractMetadataJson { get; set; }
         public string? Version { get; set; }
         public bool IsLatest { get; set; } = false;
         public int ChunkCount { get; set; } = 0;

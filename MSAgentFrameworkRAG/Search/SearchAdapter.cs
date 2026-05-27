@@ -115,6 +115,7 @@ namespace MSAgentFrameworkRAG
                 var pageNumber = GetMetadataValue(metadata, "pageNumber");
                 var sourceName = GetMetadataValue(metadata, "sourceName")
                     ?? BuildSourceName(match.Id, chunkIndex, pageNumber);
+                sourceName = AddLocationToSourceName(sourceName, chunkIndex, pageNumber);
                 var sourceLink = GetMetadataValue(metadata, "sourceLink");
 
                 candidates.Add(new SourceCitation
@@ -145,8 +146,11 @@ namespace MSAgentFrameworkRAG
 
         private static string BuildSourceName(string id, string? chunkIndex, string? pageNumber)
         {
-            var sourceName = string.IsNullOrWhiteSpace(id) ? "Pinecone search result" : $"Pinecone chunk {id}";
+            return string.IsNullOrWhiteSpace(id) ? "Pinecone search result" : $"Pinecone chunk {id}";
+        }
 
+        private static string AddLocationToSourceName(string sourceName, string? chunkIndex, string? pageNumber)
+        {
             if (!string.IsNullOrEmpty(pageNumber))
             {
                 sourceName += $" page {pageNumber}";

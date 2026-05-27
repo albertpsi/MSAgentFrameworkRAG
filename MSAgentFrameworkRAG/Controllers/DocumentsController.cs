@@ -57,6 +57,11 @@ namespace MSAgentFrameworkRAG.Controllers
 
             var documentId = Guid.NewGuid().ToString("N");
             var fileName = Path.GetFileName(file.FileName);
+            var extension = Path.GetExtension(fileName).ToLowerInvariant();
+            if (extension != ".pdf" && extension != ".docx")
+            {
+                return BadRequest("Only PDF and DOCX contract documents are supported.");
+            }
             
             // Clean filename to remove any parentheses to prevent MSBuild compilation issues inside wwwroot folder
             var cleanFileName = fileName.Replace("(", "").Replace(")", "").Replace(" ", "_");
