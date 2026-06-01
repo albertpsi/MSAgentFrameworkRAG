@@ -57,7 +57,83 @@ namespace MSAgentFrameworkRAG
                 return [];
             }
 
-            // 1. Generate Query Embeddings
+            // Extract raw Document IDs from the filter if available to align sparse search
+            List<string>? filterDocIds = null;
+            if (_filter != null && _filter.TryGetValue("documentId", out var docIdVal))
+            {
+                if (docIdVal != null)
+                {
+                    var valStr = docIdVal.ToString();
+                    if (!string.IsNullOrEmpty(valStr))
+                    {
+                        if (valStr.Contains("["))
+                        {
+                            var matches = System.Text.RegularExpressions.Regex.Matches(valStr, @"""([^""]+)""");
+                            filterDocIds = new List<string>();
+                            foreach (System.Text.RegularExpressions.Match m in matches)
+                            {
+                                var id = m.Groups[1].Value;
+                                if (id != "$in" && id != "documentId" && id != "isLatest" && id != "true")
+                                {
+                                    filterDocIds.Add(id);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            if (!valStr.StartsWith("{"))
+                            {
+                                filterDocIds = new List<string> { valStr };
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 1. Run Parallel Retrievals (Dense Vector & Sparse BM25 Keyword)
+            var denseTask = GetDenseCandidatesAsync(query, cancellationToken);
+            var sparseTask = LocalBm25Retriever.RetrieveBm25CandidatesAsync(_dbContext, query, filterDocIds, topN: 15);
+
+            await Task.WhenAll(denseTask, sparseTask).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var denseCandidates = await denseTask;
+            var sparseCandidates = await sparseTask;
+
+            // 2. Fusion and De-duplication of Candidates
+            var candidatePool = new List<SourceCitation>(denseCandidates);
+            foreach (var sparse in sparseCandidates)
+            {
+                if (!candidatePool.Any(c => c.Text.Equals(sparse.Text, StringComparison.Ordinal)))
+                {
+                    candidatePool.Add(sparse);
+                }
+            }
+
+            if (candidatePool.Count == 0)
+            {
+                return [];
+            }
+
+            // 3. Fine Native Reranking & Score Filtering (Stage 2)
+            var reranked = await _rerankService.RerankAsync(query, candidatePool, cancellationToken).ConfigureAwait(false);
+
+            // 4. Cache results so the ChatAgentService can retrieve them for citations
+            LastSearchResults.Clear();
+            LastSearchResults.AddRange(reranked);
+
+            // 5. Return results to Microsoft Agents AI reasoning loop
+            return reranked.Select(c => new TextSearchProvider.TextSearchResult
+            {
+                SourceName = c.SourceName,
+                SourceLink = c.SourceLink,
+                Text = c.Text,
+                RawRepresentation = c
+            });
+        }
+
+        private async Task<List<SourceCitation>> GetDenseCandidatesAsync(string query, CancellationToken cancellationToken)
+        {
             var vectors = EmbeddingsHelper.CreateVectors(
                 [query],
                 idSelector: _ => "query",
@@ -68,10 +144,9 @@ namespace MSAgentFrameworkRAG
 
             if (vectors.Count == 0)
             {
-                return [];
+                return new List<SourceCitation>();
             }
 
-            // 2. Coarse Vector Search (Stage 1) - Cast a wide net (TopK = 40)
             var queryResponse = await _pinecone.Index(_indexName).QueryAsync(
                 new QueryRequest
                 {
@@ -123,25 +198,11 @@ namespace MSAgentFrameworkRAG
                     SourceName = sourceName,
                     SourceLink = sourceLink,
                     Text = text,
-                    Score = match.Score // Store raw similarity score
+                    Score = match.Score
                 });
             }
 
-            // 3. Fine Native Reranking & Score Filtering (Stage 2)
-            var reranked = await _rerankService.RerankAsync(query, candidates, cancellationToken).ConfigureAwait(false);
-
-            // 4. Cache results so the ChatAgentService can retrieve them for citations
-            LastSearchResults.Clear();
-            LastSearchResults.AddRange(reranked);
-
-            // 5. Return results to Microsoft Agents AI reasoning loop
-            return reranked.Select(c => new TextSearchProvider.TextSearchResult
-            {
-                SourceName = c.SourceName,
-                SourceLink = c.SourceLink,
-                Text = c.Text,
-                RawRepresentation = c
-            });
+            return candidates;
         }
 
         private static string BuildSourceName(string id, string? chunkIndex, string? pageNumber)

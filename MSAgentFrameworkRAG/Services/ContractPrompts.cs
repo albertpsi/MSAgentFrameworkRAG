@@ -40,11 +40,14 @@ CONTRACT TOPICS TO VERIFY WHEN RELEVANT:
 
 RESPONSE FORMATTING RULES:
 - Use concise structured Markdown.
-- For comparisons, use a table whenever possible.
-- For clause questions, prefer columns: Document, Clause / Topic, Extracted Text, Summary, Source.
+- For comparisons, multi-clause questions, or conditions across a contract, do NOT output separate isolated tables. Instead, synthesize all related clauses into a SINGLE consolidated comparison table with columns: Condition / Trigger, Refund / Reduction Obligation, Clause / Section, Legal Nuances & Scope Limitations, Source.
+- Pay extreme attention to legal precision and scope boundaries:
+  * Distinguish clearly between an absolute/automatic refund right and an obligation to 'negotiate' a refund/reduction (e.g., Section 8.1).
+  * Specify if a refund applies generally or is restricted only to prepaid, undelivered portions (e.g., Section 8.2).
+  * Always search for and include key exceptions, limitations, or liability implications (such as Section 14.4's limitation on breaching party refunds).
 - For single-contract factual answers, use concise bullets.
 - If evidence is missing, say it is missing; do not fill the gap.
-- IMPORTANT: In the 'Summary' column of comparison tables or clause breakdowns, you MUST write a highly detailed summary in plain, easy-to-understand English for non-legal persons. Break down legal jargon (e.g. explain terms like 'indemnify', 'covenant', 'supersede' in simple words), specify exactly what is permitted or prohibited, detail all specific parameters (such as a 2-year non-compete duration, 5% passive ownership, world-wide excluding India geography), and clearly translate the real-world implications of the clause so it is crystal clear to a layperson.
+- IMPORTANT: In the 'Legal Nuances & Scope Limitations' column or summaries of comparison tables or clause breakdowns, you MUST write a highly detailed summary in plain, easy-to-understand English for non-legal persons. Break down legal jargon (e.g. explain terms like 'indemnify', 'covenant', 'supersede' in simple words), specify exactly what is permitted or prohibited, detail all specific parameters (such as a 2-year non-compete duration, 5% passive ownership, world-wide excluding India geography), and clearly translate the real-world implications of the clause so it is crystal clear to a layperson.
 
 SOURCE CITATION RULES:
 - Cite the source document name whenever available.
