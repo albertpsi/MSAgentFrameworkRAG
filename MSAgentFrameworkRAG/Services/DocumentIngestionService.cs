@@ -119,27 +119,26 @@ namespace MSAgentFrameworkRAG.Services
                 var parentCache = new Dictionary<string, string>();
                 foreach (var chunk in chunks)
                 {
-                    if (!string.IsNullOrEmpty(chunk.ParentContent))
-                    {
-                        if (!parentCache.TryGetValue(chunk.ParentContent, out var parentId))
-                        {
-                            var parentChunk = new DbParentChunk
-                            {
-                                DocumentId = documentId,
-                                Content = chunk.ParentContent
-                            };
-                            _dbContext.ParentChunks.Add(parentChunk);
-                            parentCache[chunk.ParentContent] = parentChunk.Id;
-                            parentId = parentChunk.Id;
-                        }
+                    var parentText = string.IsNullOrEmpty(chunk.ParentContent) ? chunk.Content : chunk.ParentContent;
 
-                        chunk.Metadata["parentId"] = parentId;
+                    if (!parentCache.TryGetValue(parentText, out var parentId))
+                    {
+                        var parentChunk = new DbParentChunk
+                        {
+                            DocumentId = documentId,
+                            Content = parentText
+                        };
+                        _dbContext.ParentChunks.Add(parentChunk);
+                        parentCache[parentText] = parentChunk.Id;
+                        parentId = parentChunk.Id;
                     }
+
+                    chunk.Metadata["parentId"] = parentId;
                 }
 
                 if (parentCache.Count > 0)
                 {
-                    Console.WriteLine($"[Document Ingestion] Persisting {parentCache.Count} parent chunks to SQL Database...");
+                    Console.WriteLine($"[Document Ingestion] Persisting {parentCache.Count} text chunks to SQL Database...");
                     await _dbContext.SaveChangesAsync().ConfigureAwait(false);
                 }
 
