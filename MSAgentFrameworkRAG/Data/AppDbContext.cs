@@ -11,6 +11,7 @@ namespace MSAgentFrameworkRAG
         public DbSet<UploadedDocument> UploadedDocuments { get; set; }
         public DbSet<DbConversation> Conversations { get; set; }
         public DbSet<DbChatMessage> ChatMessages { get; set; }
+        public DbSet<DbParentChunk> ParentChunks { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -19,6 +20,13 @@ namespace MSAgentFrameworkRAG
                 .WithOne()
                 .HasForeignKey(m => m.ConversationId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UploadedDocument>()
+                .HasMany(d => d.ParentChunks)
+                .WithOne()
+                .HasForeignKey(p => p.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
         }
     }
 

@@ -3,7 +3,6 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using Microsoft.Extensions.Options;
@@ -25,7 +24,7 @@ namespace MSAgentFrameworkRAG.Services
 
         public async Task<AgentResponse<DocumentMetadataResult>> ExtractMetadataAsync(string filePath, string fileName)
         {
-            Console.WriteLine($"[Metadata Extraction] Starting metadata extraction for '{fileName}'...");
+            Console.WriteLine($"[Metadata Extraction] Starting contract metadata extraction for '{fileName}'...");
             string sampleText = "";
 
             try
@@ -33,7 +32,7 @@ namespace MSAgentFrameworkRAG.Services
                 var ext = Path.GetExtension(filePath).ToLowerInvariant();
                 if (ext == ".pdf")
                 {
-                    sampleText = ExtractTextFromPdf(filePath, maxPages: 3);
+                    sampleText = ExtractTextFromPdf(filePath, maxPages: 5);
                 }
                 else if (ext == ".docx")
                 {
@@ -51,130 +50,144 @@ namespace MSAgentFrameworkRAG.Services
 
             if (string.IsNullOrWhiteSpace(sampleText))
             {
-                Console.WriteLine($"[Metadata Extraction] No text extracted. Returning default metadata.");
+                Console.WriteLine("[Metadata Extraction] No text extracted. Returning default metadata.");
                 return null;
             }
 
             try
             {
-                // Instantiate OpenAI ChatClient using the configured API Key and Model
                 var client = new ChatClient(model: _openAiSettings.ChatModel ?? "gpt-4o-mini", apiKey: _openAiSettings.ApiKey);
 
                 ChatClientAgentOptions metaDataExtractionOptions = new()
                 {
                     ChatOptions = new()
                     {
-                        Instructions = @"You are a highly strict document metadata extraction engine.
+                        Instructions = @"You are a strict contract metadata extraction engine.
 
-                                    Your task is to analyze the provided document sample text and extract normalized metadata.
+Your task is to analyze the provided contract sample text and extract normalized metadata.
 
-                                    IMPORTANT RULES:
-                                    - Return ONLY valid JSON.
-                                    - Do NOT include explanations, markdown, comments, or extra text.
-                                    - Normalize values consistently across similar documents.
-                                    - Remove duplicate wording, subtitles, page references, marketing text, and formatting noise.
-                                    - Prefer standardized naming over exact OCR text.
-                                    - If multiple possible values exist, choose the most generic and reusable value.
-                                    - If a field is unavailable, use the specified default value.
-                                    - Never hallucinate unknown values.
+IMPORTANT RULES:
+- Return ONLY valid JSON.
+- Do NOT include explanations, markdown, comments, or extra text.
+- Never hallucinate unknown values.
+- If a field is unavailable, return the specified default value.
+- Prefer exact contract text for titles, parties, dates, law, jurisdiction, amendments, and superseding references.
+- Normalize dates to YYYY-MM-DD when a full date is available.
+- If exact day is unavailable, use YYYY-MM or YYYY.
+- Canonicalize agreement types consistently.
 
-                                    FIELD EXTRACTION RULES:
+FIELD RULES:
 
-                                    1. company
-                                    - Extract the normalized organization/bank/company name.
-                                    - Remove branch names, regional office names, department names, addresses, and legal suffix noise.
-                                    - Use format:
-                                        <CompanyName>
-                                        OR
-                                        <CompanyName (ACRONYM)>
-                                    - Acronym should only be included if widely recognized.
-                                    - Examples:
-                                        'HDFC Bank'
-                                        'State Bank Of India (SBI)'
-                                        'ICICI Bank'
-                                        'Axis Bank'
+1. partyA
+- Extract the first primary contracting party.
+- Do not include addresses, branch names, signatory names, or titles.
+- If unavailable, return 'Unknown'.
 
-                                    2. documentType
-                                    - Extract the GENERIC reusable document category.
-                                    - Remove years, dates, version numbers, page numbers, subtitles, marketing taglines, and acronyms.
-                                    - Keep the value standardized across uploads of similar document families by mapping to canonical categories.
-                                    - CRITICAL: Standardize the word order and phrase structure for common synonyms:
-                                        - Always map any variation of charges, fees, pricing, or tariffs (e.g. 'Fees and Charges', 'Charges and Fees', 'Schedule of Charges') to the canonical form: 'Credit Card Charges And Fees'.
-                                        - Always map any variation of terms, conditions, MITC, or member agreements (e.g. 'Most Important Terms and Conditions', 'Terms & Conditions', 'Card Member Agreement') to the canonical form: 'Credit Card Terms And Conditions'.
-                                    - Examples:
-                                        'Credit Card Terms And Conditions'
-                                        'Credit Card Charges And Fees'
-                                        'Quarterly Financial Report'
-                                        'Policy Bond'
-                                        'Privacy Policy'
+2. partyB
+- Extract the second primary contracting party.
+- Do not include addresses, branch names, signatory names, or titles.
+- If unavailable, return 'Unknown'.
 
-                                    3. version
-                                    - Extract the explicit document version if available.
-                                    - Allowed examples:
-                                        '1.0'
-                                        '2.5'
-                                        'v3'
-                                    - If unavailable, return:
-                                        '1.0'
+3. agreementTitle
+- Extract the title from the contract heading when available.
+- Remove page numbers, confidentiality labels, and formatting noise.
+- If unavailable, return 'Unknown'.
 
-                                    4. fileName
-                                    - Generate a normalized file name using:
-                                        <CompanyName>_<DocumentType>
-                                    - Replace spaces with underscores.
-                                    - Remove special characters except underscore.
-                                    - Do NOT include dates, versions, page numbers, or file extensions.
-                                    - Examples:
-                                        'HDFC_Bank_Credit_Card_Terms_And_Conditions'
-                                        'State_Bank_Of_India_SBI_Credit_Card_Charges_And_Fees'
+4. agreementType
+- Return one canonical agreement category.
+- Allowed canonical examples:
+  'Non-Disclosure Agreement'
+  'Confidentiality Agreement'
+  'Master Services Agreement'
+  'Service Level Agreement'
+  'Statement Of Work'
+  'Employment Contract'
+  'Vendor Agreement'
+  'Data Processing Agreement'
+  'Lease Agreement'
+  'Purchase Agreement'
+  'Amendment'
+  'Other Agreement'
+- Map MSA to 'Master Services Agreement'.
+- Map SLA to 'Service Level Agreement'.
+- Map SOW to 'Statement Of Work'.
+- Map NDA to 'Non-Disclosure Agreement'.
+- If uncertain, return 'Other Agreement'.
 
-                                    5. fiscalQuarter
-                                    - Extract fiscal quarter only if explicitly present.
-                                    - Allowed values:
-                                        'Q1'
-                                        'Q2'
-                                        'Q3'
-                                        'Q4'
-                                    - Otherwise return:
-                                        'N/A'
+5. effectiveDate
+- Extract the date the agreement becomes effective.
+- If unavailable, return 'Unknown'.
 
-                                    6. fiscalYear
-                                    - Extract the 4-digit fiscal/reporting year only if explicitly present.
-                                    - Return integer value only.
-                                    - If unavailable return:
-                                        0
+6. executionDate
+- Extract the signing/execution date if stated separately.
+- If unavailable, return 'Unknown'.
 
-                                    7. publicationDate
-                                    - Extract the official publication/effective/revision date.
-                                    - Normalize to:
-                                        YYYY-MM-DD
-                                    - If exact day is unavailable:
-                                        YYYY-MM
-                                        or
-                                        YYYY
-                                    - If unavailable return:
-                                        'Unknown'
+7. expirationDate
+- Extract a clear end/expiry date only when explicitly stated.
+- If unavailable, return 'Unknown'.
 
-                                    OUTPUT FORMAT:
+8. governingLaw
+- Extract the governing law clause value, such as 'New York' or 'England and Wales'.
+- If unavailable, return 'Unknown'.
 
-                                    {
-                                      ""company"": """",
-                                      ""documentType"": """",
-                                      ""version"": """",
-                                      ""fileName"": """",
-                                      ""fiscalQuarter"": """",
-                                      ""fiscalYear"": 0,
-                                      ""publicationDate"": """"
-                                    }
+9. jurisdiction
+- Extract venue, forum, courts, or dispute jurisdiction if stated.
+- If unavailable, return 'Unknown'.
 
-                                    Return ONLY the JSON object.
-"
+10. contractStatus
+- Allowed values: 'active', 'expired', 'amended', 'terminated', 'unknown'.
+- Only use active, expired, amended, or terminated when directly supported by the text.
+- Otherwise return 'unknown'.
+
+11. amendmentNumber
+- Extract amendment number only when the document is clearly an amendment.
+- Examples: '1', '2', 'First Amendment', 'Amendment No. 3'.
+- If unavailable, return 'Unknown'.
+
+12. supersedesDocument
+- Extract the referenced prior agreement/document only when explicitly stated.
+- If unavailable, return 'Unknown'.
+
+13. version
+- Extract explicit document version/revision if available.
+- If unavailable, return '1.0'.
+
+14. fileName
+- Generate a normalized filename using:
+  <PartyA>_<PartyB>_<AgreementType>
+- If one party is unknown, use:
+  <KnownParty>_<AgreementType>
+- Replace spaces with underscores.
+- Remove special characters except underscore.
+- Do NOT include dates, versions, page numbers, or file extensions.
+
+OUTPUT FORMAT:
+
+{
+  ""fileName"": """",
+  ""partyA"": """",
+  ""partyB"": """",
+  ""agreementTitle"": """",
+  ""agreementType"": """",
+  ""effectiveDate"": """",
+  ""executionDate"": """",
+  ""expirationDate"": """",
+  ""governingLaw"": """",
+  ""jurisdiction"": """",
+  ""contractStatus"": """",
+  ""amendmentNumber"": """",
+  ""supersedesDocument"": """",
+  ""version"": """"
+}
+
+Return ONLY the JSON object."
                     },
-                    Name = "MetaData Extraction",
+                    Name = "Contract Metadata Extraction",
                 };
 
-                AIAgent metaDataExtraction = client.AsAIAgent(metaDataExtractionOptions); 
-                
-                var userMessage = $"Standard File Name: {fileName}\n\nDocument Text Sample:\n{sampleText.Substring(0, Math.Min(sampleText.Length, 30000))}";
+                AIAgent metaDataExtraction = client.AsAIAgent(metaDataExtractionOptions);
+
+                var userMessage = $"Original File Name: {fileName}\n\nContract Text Sample:\n{sampleText.Substring(0, Math.Min(sampleText.Length, 30000))}";
 
                 var response = await metaDataExtraction.RunAsync<DocumentMetadataResult>(userMessage).ConfigureAwait(false);
 
@@ -190,7 +203,7 @@ namespace MSAgentFrameworkRAG.Services
             return null;
         }
 
-        private string ExtractTextFromPdf(string filePath, int maxPages = 3)
+        private string ExtractTextFromPdf(string filePath, int maxPages = 5)
         {
             using var document = PdfDocument.Open(filePath);
             var pages = document.GetPages().Take(maxPages).Select(p => p.Text);
@@ -207,7 +220,7 @@ namespace MSAgentFrameworkRAG.Services
             using var entryStream = entry.Open();
             var doc = XDocument.Load(entryStream);
             XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-            
+
             var sb = new StringBuilder();
             foreach (var paragraph in doc.Descendants(w + "p"))
             {
