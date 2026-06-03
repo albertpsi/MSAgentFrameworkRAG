@@ -116,7 +116,7 @@ namespace MSAgentFrameworkRAG.Services
             };
 
             // 4. Configure Microsoft AI Agent
-            ChatClient client = new(model: _openAiSettings.ChatModel ?? "gpt-4o-mini", apiKey: _openAiSettings.ApiKey);
+            ChatClient client = new(model: _openAiSettings.RagChatModel ?? "gpt-5-mini", apiKey: _openAiSettings.ApiKey);
 
             ChatClientAgentOptions chatClientAgentOptions = new()
             {

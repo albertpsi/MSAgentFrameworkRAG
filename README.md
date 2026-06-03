@@ -41,8 +41,8 @@ To prepare the RAG platform for massive, highly scalable multi-agent environment
 This diagram details the interaction between the five system layers, their boundaries, and the data flow through ingestion, coarse querying, and fine-grained reranking:
 
 ```mermaid
-graph TB
-    User(["👤 End User"])
+flowchart TD
+    User["End User"]
     
     subgraph ClientLayer ["1. React Frontend UI (Next.js SPA)"]
         UI["React View - page.js"]
@@ -64,9 +64,9 @@ graph TB
     end
 
     subgraph StorageLayer ["4. Data & Vector Storage"]
-        Disk[("Local Uploads Disk (wwwroot/uploads/)")]
-        SQL_DB[("SQL Server Relational Database")]
-        Pinecone_DB[("Pinecone Vector Database")]
+        Disk["Local Uploads Disk (wwwroot/uploads/)"]
+        SQL_DB["SQL Server Relational Database"]
+        Pinecone_DB["Pinecone Vector Database"]
     end
 
     subgraph AILayer ["5. AI & Cognitive Services"]
@@ -86,7 +86,7 @@ graph TB
     
     Services -->|"Read / Write Transactions"| DB_Context
     Services -->|"Retrieves / Updates Sessions"| S_Cache
-    DB_Context -->|"ADO.NET Connection"| SQL_DB
+    DB_Context -->|"SQL Connection (EF Core)"| SQL_DB
     
     Services -->|"Generate Embeddings & Chat Completion"| OpenAI_API
     Vector_Adapter -->|"Pinecone Client SDK"| Pinecone_DB
@@ -94,13 +94,6 @@ graph TB
     Vector_Adapter -->|"Generates Query Embeddings"| OpenAI_API
     Vector_Adapter -->|"Native Rerank Call"| Pinecone_Inference
     Services -->|"Native Rerank Call"| Pinecone_Inference
-    
-    style User fill:#dbeafe,stroke:#1e40af,stroke-width:2px;
-    style ClientLayer fill:#f8fafc,stroke:#334155,stroke-width:2px;
-    style ProxyLayer fill:#f1f5f9,stroke:#64748b,stroke-width:2px;
-    style BackendLayer fill:#fafaf9,stroke:#78716c,stroke-width:2px;
-    style StorageLayer fill:#ecfdf5,stroke:#047857,stroke-width:2px;
-    style AILayer fill:#fff7ed,stroke:#c2410c,stroke-width:2px;
 ```
 
 ---
@@ -144,103 +137,102 @@ The Low-Level Design defines strict contract boundaries to allow clean service d
 classDiagram
     class IDocumentService {
         <<interface>>
-        +AddOrUpdate(UploadedDocument doc) Void
-        +Get(string id) UploadedDocument
+        +AddOrUpdate()
+        +Get() UploadedDocument
         +GetAll() List~UploadedDocument~
     }
     
     class IConversationService {
         <<interface>>
         +GetAll() List~Conversation~
-        +Get(string id) Conversation
-        +Create(string? name) Conversation
-        +AddMessage(string conversationId, ChatMessageInfo msg) Void
-        +Delete(string id) bool
-        +Rename(string id, string name) bool
-        +GetOrCreateSessionAsync(string conversationId, AIAgent agent) Task~AgentSession~
+        +Get() Conversation
+        +Create() Conversation
+        +AddMessage()
+        +Delete() bool
+        +Rename() bool
+        +GetOrCreateSessionAsync() Task
     }
 
     class IDocumentIngestionService {
         <<interface>>
-        +IngestDocumentAsync(string documentId, string filePath, string fileName) Task
+        +IngestDocumentAsync() Task
     }
 
     class IRetrievalService {
         <<interface>>
-        +RetrieveContextAsync(string query, string? documentId) Task~List~SourceCitation~~
-        +RetrieveContextAsync(string query, List~string~? documentIds) Task~List~SourceCitation~~
+        +RetrieveContextAsync() List~SourceCitation~
     }
 
     class IRerankService {
         <<interface>>
-        +RerankAsync(string query, List~SourceCitation~~ candidates, CancellationToken cancellationToken) Task~List~SourceCitation~~~
+        +RerankAsync() List~SourceCitation~
     }
 
     class IChatAgentService {
         <<interface>>
-        +ProcessChatAsync(ChatRequest request) Task~ChatResponse~
-        +ProcessChatStreamAsync(ChatRequest request) IAsyncEnumerable~string~
+        +ProcessChatAsync() ChatResponse
+        +ProcessChatStreamAsync() IAsyncEnumerable
     }
 
     class IMetadataExtractionService {
         <<interface>>
-        +ExtractMetadataAsync(string filePath, string fileName) Task~AgentResponse~DocumentMetadataResult~~
+        +ExtractMetadataAsync() Task
     }
 
     class DocumentService {
-        -AppDbContext _dbContext
-        +AddOrUpdate(UploadedDocument doc) Void
+        -AppDbContext dbContext
+        +AddOrUpdate()
     }
     
     class ConversationService {
-        -AppDbContext _dbContext
-        -SessionCache _sessionCache
-        +GetOrCreateSessionAsync(string conversationId, AIAgent agent) Task~AgentSession~
+        -AppDbContext dbContext
+        -SessionCache sessionCache
+        +GetOrCreateSessionAsync() Task
     }
 
     class DocumentIngestionService {
-        -IDocumentService _documentService
-        -IMetadataExtractionService _metadataService
-        -FileChunkingService _chunkingService
-        +IngestDocumentAsync(...) Task
+        -IDocumentService documentService
+        -IMetadataExtractionService metadataService
+        -FileChunkingService chunkingService
+        +IngestDocumentAsync() Task
     }
 
     class RetrievalService {
-        -OpenAISettings _openAiSettings
-        -PineconeSettings _pineconeSettings
-        -IRerankService _rerankService
-        +RetrieveContextAsync(...) Task~List~SourceCitation~~
+        -OpenAISettings openAiSettings
+        -PineconeSettings pineconeSettings
+        -IRerankService rerankService
+        +RetrieveContextAsync() List~SourceCitation~
     }
 
     class RerankService {
-        -PineconeSettings _pineconeSettings
-        -ILogger~RerankService~ _logger
-        +RerankAsync(...) Task~List~SourceCitation~~~
+        -PineconeSettings pineconeSettings
+        -ILogger logger
+        +RerankAsync() List~SourceCitation~
     }
 
     class ChatAgentService {
-        -IConversationService _conversationService
-        -IRetrievalService _retrievalService
-        -IRerankService _rerankService
-        +ProcessChatAsync(...) Task~ChatResponse~
+        -IConversationService conversationService
+        -IRetrievalService retrievalService
+        -IRerankService rerankService
+        +ProcessChatAsync() ChatResponse
     }
 
     class SessionCache {
-        -ConcurrentDictionary~string, AgentSession~ _sessions
-        +Get(string conversationId) AgentSession
-        +Set(string conversationId, AgentSession session) Void
+        -ConcurrentDictionary sessions
+        +Get() AgentSession
+        +Set()
     }
 
     class PineconeTextSearchAdapter {
-        -PineconeClient _pinecone
-        -IRerankService _rerankService
-        -AppDbContext _dbContext
-        +SearchAsync(string query, CancellationToken ct) Task~IEnumerable~TextSearchResult~~
+        -PineconeClient pinecone
+        -IRerankService rerankService
+        -AppDbContext dbContext
+        +SearchAsync() IEnumerable
     }
 
     class LocalBm25Retriever {
         <<static>>
-        +RetrieveBm25CandidatesAsync(AppDbContext dbContext, string query, List~string~? documentIds, int topN, double k1, double b) Task~List~SourceCitation~~
+        +RetrieveBm25CandidatesAsync() List~SourceCitation~
     }
 
     DocumentService ..|> IDocumentService
@@ -331,14 +323,14 @@ The system utilizes four distinct **Microsoft Agents AI** (`AIAgent`) instances,
 * **How it is called:** Executed during every turn of the chat interface. It has a custom `AIContextProvider` named `TextSearchProvider` which runs the `searchAdapter.SearchAsync()` function first to load Pinecone and SQL chunks into the LLM context.
 * **Flow:** Vectorizes rewritten query -> Broad-match retrieves 40 chunks -> Performs parent-child context swap -> Reranks candidates down to Top 10 with score > 0.5 -> LLM processes context -> Streams formatted output.
 * **Agent Response Output Example:**
-  ```markdown
+
   Based on the retrieved contracts, here is a comparison of the termination clauses:
 
   | Document | Clause / Topic | Extracted Text | Summary (Plain English Breakdown) | Source |
   | :--- | :--- | :--- | :--- | :--- |
   | **Acme Corp / Zenith Solutions LLC**<br>*Master Services Agreement* | Termination for Convenience | "Either party may terminate this Agreement without cause upon ninety (90) days prior written notice." | **Termination without reason permitted:** Both parties can end the contract at any time for no reason. However, they must give the other party at least **90 days' notice** in writing. | [Source: Acme_Corp_Zenith_Solutions_LLC_Master_Services_Agreement page 4] |
   | **Acme Corp / Zenith Solutions LLC**<br>*First Amendment* | Amendment to Termination | "Section 4.2 of the Agreement is hereby amended to replace 'ninety (90) days' with 'one hundred twenty (120) days'." | **Notice period extended:** This amendment increases the notice required to end the agreement without cause from 90 days to **120 days**. All other terms remain active. | [Source: Acme_Corp_Zenith_Solutions_LLC_Master_Services_Agreement_First_Amendment page 1] |
-  ```
+
 
 ---
 
@@ -350,46 +342,46 @@ Extracts semantic contract metadata, performs fuzzy family matching, ranks versi
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as Client UI (Next.js)
+    actor User as "Client UI (Next.js)"
     participant Ctrl as DocumentsController
-    participant Job as Quartz FileIngestionJob
+    participant Job as "Quartz FileIngestionJob"
     participant Service as DocumentIngestionService
-    participant MetaAgent as Metadata Agent (LLM)
-    participant DB as SQL Server (EF Core)
-    participant Pinecone as Pinecone Vector DB
+    participant MetaAgent as "Metadata Agent (LLM)"
+    participant DB as "SQL Server (EF Core)"
+    participant Pinecone as "Pinecone Vector DB"
 
-    User->>Ctrl: POST /api/upload (Multipart File)
-    Note over Ctrl: Create Safe Filename & Write to wwwroot/uploads/
+    User->>Ctrl: POST /api/upload
+    Note over Ctrl: Create Safe Filename & Write
     Ctrl->>DB: Add UploadedDocument (Status: Pending)
-    Ctrl->>Job: Schedule Ingestion Job (DocumentId)
-    Ctrl-->>User: HTTP 200 OK (Upload Acknowledged)
+    Ctrl->>Job: Schedule Ingestion Job
+    Ctrl-->>User: HTTP 200 OK
     
     Note over Job: Quartz Background Engine Starts Async
-    Job->>Service: IngestDocumentAsync(DocumentId, Path, Name)
+    Job->>Service: IngestDocumentAsync
     Service->>DB: Update Status to "Processing"
     
-    Service->>MetaAgent: Run Metadata Agent (Sample First 30K Chars)
+    Service->>MetaAgent: Run Metadata Agent
     MetaAgent-->>Service: Return JSON Metadata
-    Service->>DB: Save Parsed Metadata (Parties, Title, Type, EffectiveDate, Version, etc.)
+    Service->>DB: Save Parsed Metadata
     
     Service->>DB: GetAll Documents
     DB-->>Service: List of Documents
     
-    Note over Service: Group by similar Party Set & Agreement Title. Sort by UploadedDocumentVersionComparer (Amendment Number, Effective Date, Execution Date, Version, Upload Time)
+    Note over Service: Group by family and sort by version
     
     alt Found Older Versions in Same Family
-        Service->>DB: Update isLatest status in SQL table
-        Service->>Pinecone: Parallel Updates (SemaphoreSlim limit 10) to toggle 'isLatest' metadata value to "false"
-        Pinecone-->>Service: Acknowledge Metadata Updates
+        Service->>DB: Update isLatest status in SQL
+        Service->>Pinecone: Update isLatest to false (Parallel updates)
+        Pinecone-->>Service: Acknowledge Updates
     else No Other Family Members
         Note over Service: Flag this document as isLatest = true
     end
     
-    Note over Service: Read and split document via FileChunkingService (Size: 3000 chars, Overlap: 500 chars)
+    Note over Service: Split document into chunks (Size 3000, Overlap 500)
     Service->>Service: Generate Chunks
     
-    Note over Service: Generate 512-Dim Dense Embeddings via OpenAI text-embedding-3-small
-    Service->>Pinecone: Upsert Vector Batches (Metadata contains documentId, Content, parties, isLatest, etc.)
+    Note over Service: Generate 512-dim embeddings via OpenAI
+    Service->>Pinecone: Upsert Vector Batches
     Pinecone-->>Service: Acknowledge Vector Writes
     
     Service->>DB: Update Status to "Indexed"
@@ -412,71 +404,71 @@ Converts conversational text to vector-optimized queries, performs multi-file se
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as Client UI (Next.js)
+    actor User as "Client UI (Next.js)"
     participant Ctrl as ChatController
     participant Service as ChatAgentService
     participant Adapter as PineconeTextSearchAdapter
     participant Reranker as RerankService
-    participant OpenAI as OpenAI API
-    participant PineconeVector as Pinecone Vector DB
-    participant PineconeInf as Pinecone Inference Reranker
-    participant DB as SQL Server (EF Core)
-    participant ChatAgent as RAGSupportAgent (LLM)
-    participant TitleAgent as Title Agent (LLM)
+    participant OpenAI as "OpenAI API"
+    participant PineconeVector as "Pinecone Vector DB"
+    participant PineconeInf as "Pinecone Inference Reranker"
+    participant DB as "SQL Server (EF Core)"
+    participant ChatAgent as "RAGSupportAgent (LLM)"
+    participant TitleAgent as "Title Agent (LLM)"
 
     User->>Ctrl: POST /api/chat (or /api/chat/stream)
-    Ctrl->>Service: ProcessChat[Stream]Async(ConversationId, Message, DocumentIds)
+    Ctrl->>Service: ProcessChat/Stream Async
     Service->>DB: Get Conversation History
     DB-->>Service: Return List of Messages
     
-    alt History Exists (Multi-turn Conversation)
-        Service->>OpenAI: Rewrite Query (History + Latest Message)
-        OpenAI-->>Service: Return Standalone Standalone Query
+    alt History Exists
+        Service->>OpenAI: Rewrite Query
+        OpenAI-->>Service: Return Standalone Query
     else First Turn
         Note over Service: Use original message as search query
     end
     
-    Service->>Adapter: Instantiate with Filters & IRerankService
+    Service->>Adapter: Instantiate Search Adapter
     Service->>ChatAgent: Run RAG Support Agent
     
     Note over ChatAgent: AIContextProviders triggers before invoke
-    ChatAgent->>Adapter: SearchAsync(standaloneQuery)
+    ChatAgent->>Adapter: SearchAsync
     
-    Adapter->>OpenAI: Generate Embeddings (text-embedding-3-small)
-    OpenAI-->>Adapter: Return 512-Dim Query Vector
+    Adapter->>OpenAI: Generate Embeddings
+    OpenAI-->>Adapter: Return Query Vector
     
-    Adapter->>PineconeVector: Query Index (Vector, TopK = 40, Filter)
-    PineconeVector-->>Adapter: Return Coarse Matches (ScoredVector List)
+    Adapter->>PineconeVector: Query Index
+    PineconeVector-->>Adapter: Return Coarse Matches
     
-    Note over Adapter: Parent-Child Context Swap (Fetches Full Parent Table from SQL DB if parentId exists)
+    Note over Adapter: Parent-Child Context Swap
     
-    Adapter->>Reranker: RerankAsync(query, candidates)
-    Reranker->>PineconeInf: Inference.RerankAsync (bge-reranker-v2-m3)
-    PineconeInf-->>Reranker: Return Ranked Candidates & Scores
-    Note over Reranker: Filter candidates based on RerankScoreThreshold
-    Reranker-->>Adapter: Return High-Relevance Chunks
+    Adapter->>Reranker: Rerank Candidates
+    Reranker->>PineconeInf: Inference Rerank
+    PineconeInf-->>Reranker: Return Ranked Candidates
+    Note over Reranker: Filter candidates by threshold
+    Reranker-->>Adapter: Return Chunks
     
-    Note over Adapter: Cache results in LastSearchResults for citations
+    Note over Adapter: Cache results in LastSearchResults
     Adapter-->>ChatAgent: Return Chunks to AI context
     
     Note over ChatAgent: Agent reasons using retrieved context
     
-    alt Streaming Request (/stream)
-        ChatAgent-->>User: Yield Active Tokens (Server-Sent Events)
+    alt Streaming Request
+        ChatAgent-->>User: Yield Active Tokens
     else Blocking Request
         ChatAgent-->>Service: Return Final Chat Completion Text
     end
     
-    Service->>Adapter: Read LastSearchResults (Citations Cache)
-    Adapter-->>Service: Return Citations (with Vector & Rerank Scores)
+    Service->>Adapter: Read LastSearchResults
+    Adapter-->>Service: Return Citations
     
-    alt Is First Turn of Conversation
-        Service->>OpenAI: Generate short title from first query (Title Agent)
+    alt Is First Turn
+        Service->>OpenAI: Generate title from first query
         OpenAI-->>Service: Return 1-3 Word Title
         Service->>DB: Update Conversation Title
     end
     
-    Service->>DB: Persist User Message & Assistant Message (with CitationsJson)
+    Service->>DB: Persist Messages
 ```
 
 * **Multi-File Search & `$in` Filters:** When the user selects "Search across all files" or picks multiple documents, the frontend transmits an array of document IDs. If multiple IDs are active, the retrieval pipeline builds a Pinecone `$in` array filter:
@@ -494,45 +486,67 @@ sequenceDiagram
 ## 4. 🗄️ Database, Schema & Vector Design
 
 ### 4.1 Relational Schema Map (SQL Server via EF Core)
-The relational system is declared in [AppDbContext.cs](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/AppDbContext.cs):
+
+> [!NOTE]
+> Relational database access is managed **exclusively through Entity Framework Core (EF Core)** using SQL Server (`Microsoft.EntityFrameworkCore.SqlServer`). There is no direct ADO.NET code (such as `SqlCommand`, `SqlDataReader`, etc.) implemented in the codebase. All database reads, writes, and relationships are managed programmatically via the `AppDbContext` context class.
+
+The relational system is declared in [AppDbContext.cs](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/MSAgentFrameworkRAG/Data/AppDbContext.cs):
 
 ```
 ┌────────────────────────────────────────────────────────┐
 │                   UploadedDocuments                    │
 │────────────────────────────────────────────────────────│
-│ Id : NVARCHAR(450) [PK]                                │
-│ FileName : NVARCHAR(MAX)                               │
-│ Status : NVARCHAR(MAX) (Pending/Processing/Indexed)    │
-│ ErrorMessage : NVARCHAR(MAX) [Nullable]                │
-│ UploadedAt : DATETIME2                                 │
-│ PartyA : NVARCHAR(MAX) [Nullable]                      │
-│ PartyB : NVARCHAR(MAX) [Nullable]                      │
-│ AgreementTitle : NVARCHAR(MAX) [Nullable]              │
-│ AgreementType : NVARCHAR(MAX) [Nullable]               │
-│ EffectiveDate : NVARCHAR(MAX) [Nullable]               │
-│ ExecutionDate : NVARCHAR(MAX) [Nullable]               │
-│ ExpirationDate : NVARCHAR(MAX) [Nullable]              │
-│ GoverningLaw : NVARCHAR(MAX) [Nullable]                │
-│ Jurisdiction : NVARCHAR(MAX) [Nullable]                │
-│ ContractStatus : NVARCHAR(MAX) [Nullable]              │
-│ AmendmentNumber : NVARCHAR(MAX) [Nullable]             │
-│ SupersedesDocument : NVARCHAR(MAX) [Nullable]          │
-│ ContractMetadataJson : NVARCHAR(MAX) [Nullable]        │
-│ Version : NVARCHAR(MAX) [Nullable]                     │
-│ IsLatest : BIT                                         │
-│ ChunkCount : INT                                       │
-└────────────────────────────────────────────────────────┘
-
+│ Id : NVARCHAR(450) [PK]                                ├────────┐
+│ FileName : NVARCHAR(MAX)                               │        │
+│ Status : NVARCHAR(MAX) (Pending/Processing/Indexed)    │        │
+│ ErrorMessage : NVARCHAR(MAX) [Nullable]                │        │
+│ UploadedAt : DATETIME2                                 │        │
+│ PartyA : NVARCHAR(MAX) [Nullable]                      │        │
+│ PartyB : NVARCHAR(MAX) [Nullable]                      │        │
+│ AgreementTitle : NVARCHAR(MAX) [Nullable]              │        │
+│ AgreementType : NVARCHAR(MAX) [Nullable]               │        │
+│ EffectiveDate : NVARCHAR(MAX) [Nullable]               │        │
+│ ExecutionDate : NVARCHAR(MAX) [Nullable]               │        │
+│ ExpirationDate : NVARCHAR(MAX) [Nullable]              │        │
+│ GoverningLaw : NVARCHAR(MAX) [Nullable]                │        │
+│ Jurisdiction : NVARCHAR(MAX) [Nullable]                │        │
+│ ContractStatus : NVARCHAR(MAX) [Nullable]              │        │
+│ AmendmentNumber : NVARCHAR(MAX) [Nullable]             │        │
+│ SupersedesDocument : NVARCHAR(MAX) [Nullable]          │        │
+│ ContractMetadataJson : NVARCHAR(MAX) [Nullable]        │        │
+│ Version : NVARCHAR(MAX) [Nullable]                     │        │
+│ IsLatest : BIT                                         │        │
+│ ChunkCount : INT                                       │        │
+└────────────────────────────────────────────────────────┘        │
+                                                                  │ 1:N
+                                                                  │
+                                                                  ▼
 ┌──────────────────────────────────────┐     ┌──────────────────────────────────────┐
-│           DbConversations            │     │           DbChatMessages             │
+│           DbConversations            │     │            DbParentChunks            │
 ├──────────────────────────────────────┤     ├──────────────────────────────────────┤
-│ Id : NVARCHAR(450) [PK]              │◄────┤ Id : INT [PK, IDENTITY]              │
-│ Name : NVARCHAR(MAX)                 │     │ ConversationId : NVARCHAR(450) [FK]   │
-│ CreatedAt : DATETIME2                │     │ Sender : NVARCHAR(MAX) (user/assistant)│
-└──────────────────────────────────────┘     │ Text : NVARCHAR(MAX)                 │
-                                             │ Timestamp : DATETIME2                │
-                                             │ CitationsJson : NVARCHAR(MAX) [Null] │
-                                             └──────────────────────────────────────┘
+│ Id : NVARCHAR(450) [PK]              │◄──┐ │ Id : NVARCHAR(450) [PK]              │
+│ Name : NVARCHAR(MAX)                 │   │ │ DocumentId : NVARCHAR(450) [FK]      │
+│ CreatedAt : DATETIME2                │   │ │ Content : NVARCHAR(MAX)              │
+└──────────────────────────────────────┘   │ │ CreatedAt : DATETIME2                │
+                                           │ └──────────────────────────────────────┘
+                                       1:N │
+                                           │
+                                           │
+                                           │
+                                           │
+             ┌─────────────────────────────┘
+             │
+             ▼
+┌──────────────────────────────────────┐
+│            DbChatMessages            │
+├──────────────────────────────────────┤
+│ Id : INT [PK, IDENTITY]              │
+│ ConversationId : NVARCHAR(450) [FK]   │
+│ Sender : NVARCHAR(MAX) (user/assistant)│
+│ Text : NVARCHAR(MAX)                 │
+│ Timestamp : DATETIME2                │
+│ CitationsJson : NVARCHAR(MAX) [Null] │
+└──────────────────────────────────────┘
 ```
 
 * **Citations & Diagnostics:** Nested citation structures (`List<SourceCitation>`) are serialized as a string and stored inside `CitationsJson` to avoid table join overhead on fast UI loads. Each citation includes:
@@ -593,6 +607,7 @@ Add connection details and two-stage retrieval settings in your [appsettings.jso
   "OpenAI": {
     "ApiKey": "YOUR_OPENAI_API_KEY",
     "ChatModel": "gpt-4o-mini",
+    "RagChatModel": "gpt-5-mini",
     "EmbeddingModel": "text-embedding-3-small"
   },
   "Pinecone": {
