@@ -53,7 +53,7 @@ namespace MSAgentFrameworkRAG.Services
             {
                 // 1. Generate Embeddings for the search query
                 var client = new EmbeddingClient(
-                    model: _openAiSettings.EmbeddingModel ?? "text-embedding-3-small", 
+                    model: _openAiSettings.EmbeddingModel ?? "text-embedding-3-large", 
                     apiKey: _openAiSettings.ApiKey);
                 var embeddingResponse = await client.GenerateEmbeddingAsync(query).ConfigureAwait(false);
                 var queryVector = embeddingResponse.Value.ToFloats().ToArray();

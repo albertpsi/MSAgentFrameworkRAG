@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI;
+using Microsoft.EntityFrameworkCore;
 using OpenAI.Embeddings;
 using Pinecone;
 using MSAgentFrameworkRAG.Interfaces;
@@ -34,7 +35,7 @@ namespace MSAgentFrameworkRAG
             AppDbContext dbContext,
             EmbeddingGenerationOptions? embeddingOptions = null,
             Metadata? filter = null,
-            string embeddingModel = "text-embedding-3-small",
+            string embeddingModel = "text-embedding-3-large",
             int topK = 40)
         {
             _pinecone = pinecone ?? throw new ArgumentNullException(nameof(pinecone));
@@ -90,15 +91,10 @@ namespace MSAgentFrameworkRAG
                 }
             }
 
-            // 1. Run Parallel Retrievals (Dense Vector & Sparse BM25 Keyword)
-            var denseTask = GetDenseCandidatesAsync(query, cancellationToken);
-            var sparseTask = LocalBm25Retriever.RetrieveBm25CandidatesAsync(_dbContext, query, filterDocIds, topN: 15);
-
-            await Task.WhenAll(denseTask, sparseTask).ConfigureAwait(false);
+            // 1. Run Retrievals (Dense Vector & Sparse BM25 Keyword) sequentially to ensure DbContext thread safety
+            var denseCandidates = await GetDenseCandidatesAsync(query, cancellationToken).ConfigureAwait(false);
+            var sparseCandidates = await LocalBm25Retriever.RetrieveBm25CandidatesAsync(_dbContext, query, filterDocIds, topN: 40).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-
-            var denseCandidates = await denseTask;
-            var sparseCandidates = await sparseTask;
 
             // 2. Fusion and De-duplication of Candidates
             var candidatePool = new List<SourceCitation>(denseCandidates);
@@ -115,14 +111,49 @@ namespace MSAgentFrameworkRAG
                 return [];
             }
 
+            Console.WriteLine(candidatePool.Count);
+
             // 3. Fine Native Reranking & Score Filtering (Stage 2)
             var reranked = await _rerankService.RerankAsync(query, candidatePool, cancellationToken).ConfigureAwait(false);
 
-            // 4. Cache results so the ChatAgentService can retrieve them for citations
+            Console.WriteLine(reranked.Count);
+
+            // 4. Post-Rerank Parent-Child Context Swapping (only for the final top-k candidates to prevent token limit errors during rerank)
+            var parentIds = reranked
+                .Select(c => c.ParentId)
+                .Where(id => !string.IsNullOrEmpty(id))
+                .Distinct()
+                .ToList();
+
+            if (parentIds.Count > 0)
+            {
+                try
+                {
+                    var parentChunksMap = await _dbContext.ParentChunks
+                        .AsNoTracking()
+                        .Where(p => parentIds.Contains(p.Id))
+                        .ToDictionaryAsync(p => p.Id, p => p.Content)
+                        .ConfigureAwait(false);
+
+                    foreach (var citation in reranked)
+                    {
+                        if (!string.IsNullOrEmpty(citation.ParentId) && parentChunksMap.TryGetValue(citation.ParentId, out var parentContent))
+                        {
+                            citation.Text = parentContent;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Post-Rerank Parent Swap ERROR] Failed to batch fetch parent chunks: {ex.Message}");
+                }
+            }
+
+            // 5. Cache results so the ChatAgentService can retrieve them for citations
             LastSearchResults.Clear();
             LastSearchResults.AddRange(reranked);
 
-            // 5. Return results to Microsoft Agents AI reasoning loop
+            // 6. Return results to Microsoft Agents AI reasoning loop
             return reranked.Select(c => new TextSearchProvider.TextSearchResult
             {
                 SourceName = c.SourceName,
@@ -134,6 +165,8 @@ namespace MSAgentFrameworkRAG
 
         private async Task<List<SourceCitation>> GetDenseCandidatesAsync(string query, CancellationToken cancellationToken)
         {
+           
+            
             var vectors = EmbeddingsHelper.CreateVectors(
                 [query],
                 idSelector: _ => "query",
@@ -153,7 +186,7 @@ namespace MSAgentFrameworkRAG
                     Vector = vectors[0].Values,
                     TopK = (uint)_topK,
                     IncludeMetadata = true,
-                    Filter = _filter
+                    Filter = _filter,
                 }).ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -168,24 +201,7 @@ namespace MSAgentFrameworkRAG
                     ?? GetMetadataValue(metadata, "content")
                     ?? string.Empty;
 
-                // Parent-Child Context Swap Logic
                 var parentId = GetMetadataValue(metadata, "parentId");
-                if (!string.IsNullOrEmpty(parentId))
-                {
-                    try
-                    {
-                        var parentChunk = _dbContext.ParentChunks.FirstOrDefault(p => p.Id == parentId);
-                        if (parentChunk != null)
-                        {
-                            text = parentChunk.Content;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[Parent-Child Swap ERROR] Failed to fetch parent chunk '{parentId}': {ex.Message}");
-                    }
-                }
-
                 var chunkIndex = GetMetadataValue(metadata, "chunkIndex");
                 var pageNumber = GetMetadataValue(metadata, "pageNumber");
                 var sourceName = GetMetadataValue(metadata, "sourceName")
@@ -198,7 +214,8 @@ namespace MSAgentFrameworkRAG
                     SourceName = sourceName,
                     SourceLink = sourceLink,
                     Text = text,
-                    Score = match.Score
+                    Score = match.Score,
+                    ParentId = parentId // Keep parentId for post-rerank swapping
                 });
             }
 

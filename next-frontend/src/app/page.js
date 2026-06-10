@@ -53,6 +53,9 @@ export default function Home() {
   // --- MANUAL SIDEBAR ACTIONS STATE ---
   const [editingConversationId, setEditingConversationId] = useState(null);
   const [renameInputVal, setRenameInputVal] = useState('');
+  const [conversationsOpen, setConversationsOpen] = useState(true);
+  const [docsOpen, setDocsOpen] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // --- REFS ---
   const chatMessagesEndRef = useRef(null);
@@ -478,17 +481,22 @@ export default function Home() {
       )}
 
       {/* SIDEBAR */}
-      <aside className="sidebar">
+      <aside className={`sidebar${sidebarCollapsed ? ' collapsed' : ''}`}>
         <div className="sidebar-header">
           <div className="brand">
-            <div className="brand-logo">
-              <i className="fa-solid fa-brain-circuit text-gradient"></i>
-            </div>
             <div className="brand-info">
               <h2>RAG Pipeline Demo</h2>
               <span>MS Agent Framework</span>
             </div>
           </div>
+          <button
+            type="button"
+            className="sidebar-collapse-btn"
+            onClick={() => setSidebarCollapsed(prev => !prev)}
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <i className={`fa-solid fa-chevron-${sidebarCollapsed ? 'right' : 'left'}`}></i>
+          </button>
         </div>
 
         {/* Action Button */}
@@ -499,10 +507,22 @@ export default function Home() {
         {/* Conversations List */}
         <div className="sidebar-section">
           <div className="section-title">
-            <span>Conversations</span>
-            <i className="fa-regular fa-message"></i>
+            <div className="section-title-left">
+              <span>Conversations</span>
+              <i className="fa-regular fa-message"></i>
+            </div>
+            <button
+              type="button"
+              className="section-toggle"
+              onClick={() => setConversationsOpen(prev => !prev)}
+              aria-expanded={conversationsOpen}
+              aria-label="Toggle Conversations"
+            >
+              <i className={`fa-solid fa-chevron-${conversationsOpen ? 'down' : 'right'}`}></i>
+            </button>
           </div>
-          <div className="conversations-list">
+          {conversationsOpen && (
+            <div className="conversations-list">
             {conversations.length === 0 ? (
               <div className="list-placeholder">No conversations yet</div>
             ) : (
@@ -567,15 +587,28 @@ export default function Home() {
               })
             )}
           </div>
+          )}
         </div>
 
         {/* Documents Panel */}
         <div className="sidebar-section docs-section">
           <div className="section-title">
-            <span>Knowledge Base</span>
-            <i className="fa-regular fa-folder-open"></i>
+            <div className="section-title-left">
+              <span>Knowledge Base</span>
+              <i className="fa-regular fa-folder-open"></i>
+            </div>
+            <button
+              type="button"
+              className="section-toggle"
+              onClick={() => setDocsOpen(prev => !prev)}
+              aria-expanded={docsOpen}
+              aria-label="Toggle Knowledge Base"
+            >
+              <i className={`fa-solid fa-chevron-${docsOpen ? 'down' : 'right'}`}></i>
+            </button>
           </div>
-          
+          {docsOpen && (
+          <>
           <div
             className={`dropzone ${isDragOver ? 'dragover' : ''}`}
             onClick={() => fileInputRef.current?.click()}
@@ -684,6 +717,8 @@ export default function Home() {
               })
             )}
           </div>
+          </>
+          )}
         </div>
       </aside>
 

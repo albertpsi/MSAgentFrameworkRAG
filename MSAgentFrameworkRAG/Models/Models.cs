@@ -49,6 +49,7 @@ namespace MSAgentFrameworkRAG
         public double? Score { get; set; }
         public double? RerankScore { get; set; }
         public double? QueryTimeMs { get; set; }
+        public string? ParentId { get; set; }
     }
 
     public class Conversation

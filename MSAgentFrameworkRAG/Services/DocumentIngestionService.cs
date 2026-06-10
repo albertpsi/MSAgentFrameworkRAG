@@ -76,7 +76,7 @@ namespace MSAgentFrameworkRAG.Services
                 Console.WriteLine("[Document Ingestion] Parsing and chunking contract document...");
                 var parser = Helpers.ParserFactory.GetParser(filePath);
                 var structuredDoc = parser.Parse(filePath);
-                var chunks = ChunkStructuredDocument(structuredDoc, chunkSize: 3000, overlap: 500);
+                var chunks = ChunkStructuredDocument(structuredDoc, chunkSize: 1000, overlap: 300);
                 doc.ChunkCount = chunks.Count;
 
                 Console.WriteLine($"[Document Ingestion] Split document into {doc.ChunkCount} chunks.");
@@ -145,7 +145,7 @@ namespace MSAgentFrameworkRAG.Services
                 if (chunks.Count > 0)
                 {
                     Console.WriteLine("[Document Ingestion] Generating dense vectors for new document chunks...");
-                    var embeddingOptions = new EmbeddingGenerationOptions { Dimensions = 512 };
+                    var embeddingOptions = new EmbeddingGenerationOptions { Dimensions = 1024 };
 
                     var vectorsToUpsert = EmbeddingsHelper.CreateVectors(
                         chunks,
@@ -153,7 +153,7 @@ namespace MSAgentFrameworkRAG.Services
                         contentSelector: c => c.Content,
                         apiKey: _openAiSettings.ApiKey,
                         options: embeddingOptions,
-                        model: _openAiSettings.EmbeddingModel ?? "text-embedding-3-small",
+                        model: _openAiSettings.EmbeddingModel ?? "text-embedding-3-large",
                         metadataBuilder: c =>
                         {
                             var md = new Metadata();
@@ -287,6 +287,7 @@ namespace MSAgentFrameworkRAG.Services
                             ChunkIndex = globalChunkIndex++,
                             Content = chunkContent,
                             PageNumber = section.PageOrSlideNumber,
+                            ParentContent = text, // Store the full page/paragraph text as the parent context
                             Metadata = new Dictionary<string, string>
                             {
                                 { "PageNumber", section.PageOrSlideNumber.ToString() }

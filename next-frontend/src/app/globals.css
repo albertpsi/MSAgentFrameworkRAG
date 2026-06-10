@@ -9,9 +9,12 @@
     --accent-gradient: linear-gradient(135deg, #7928ca 0%, #ff007a 100%);
     --accent-light: rgba(121, 40, 202, 0.08);
     
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-muted: #94a3b8;
+    --text-primary: #000000;
+    --text-secondary: #17181a;
+    --text-muted: #6b7280;
+    --font-size-base: 20px;
+    --font-size-md: 15px;
+    --font-size-sm: 13px;
     
     --success-color: #10b981;
     --warning-color: #f59e0b;
@@ -38,9 +41,9 @@
     --accent-gradient: linear-gradient(135deg, #8c52ff 0%, #ff52d9 100%);
     --accent-light: rgba(140, 82, 255, 0.15);
     
-    --text-primary: #f0f2fc;
-    --text-secondary: #9aa1c1;
-    --text-muted: #5e668a;
+    --text-primary: #ffffff;
+    --text-secondary: #c8d1ef;
+    --text-muted: #94a3b8;
     
     --success-color: #00e676;
     --warning-color: #ffd600;
@@ -64,6 +67,9 @@ body {
     background-color: var(--bg-primary);
     color: var(--text-primary);
     font-family: var(--font-jakarta);
+    font-size: var(--font-size-base);
+    font-weight: 500;
+    line-height: 1.5;
     overflow: hidden;
     height: 100vh;
     width: 100vw;
@@ -137,13 +143,13 @@ body {
 
 .brand-info h2 {
     font-family: var(--font-outfit);
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 700;
     letter-spacing: 0.5px;
 }
 
 .brand-info span {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
     font-weight: 500;
     text-transform: uppercase;
@@ -160,7 +166,7 @@ body {
     padding: 14px;
     font-family: var(--font-outfit);
     font-weight: 600;
-    font-size: 15px;
+    font-size: 16px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -204,6 +210,98 @@ body {
     margin-bottom: 12px;
 }
 
+.section-title-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.section-toggle {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 8px;
+    transition: var(--transition-smooth);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.section-toggle:hover { color: var(--text-primary); background: rgba(255,255,255,0.02); }
+
+.section-toggle i {
+    font-size: 12px;
+    transition: transform 0.22s ease;
+}
+
+.section-toggle[aria-expanded="false"] i { transform: rotate(-90deg); }
+
+/* Sidebar collapsed state */
+.sidebar.collapsed {
+    width: 72px;
+}
+
+.sidebar.collapsed .brand-info { display: none; }
+.sidebar.collapsed .btn-new-chat { display: none; }
+.sidebar.collapsed .section-title span { display: none; }
+.sidebar.collapsed .section-title-left span { display: none; }
+.sidebar.collapsed .conversation-name { display: none; }
+.sidebar.collapsed .conversation-actions { display: none; }
+.sidebar.collapsed .conversations-list { display: none; }
+.sidebar.collapsed .documents-list { display: none; }
+.sidebar.collapsed .dropzone { display: none; }
+.sidebar.collapsed .document-item { display: none; }
+
+/* When sidebar is collapsed stack section icons/chevrons below the header collapse button to avoid overlap */
+.sidebar.collapsed .section-title {
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding-top: 8px;
+}
+
+.sidebar.collapsed .section-title-left {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+}
+
+.sidebar.collapsed .section-toggle {
+    margin-top: 4px;
+}
+
+/* Slightly reduce message bubble table cell padding for wide displays */
+.msg-bubble .table-container td, .msg-bubble .table-container th {
+    padding: 12px 14px;
+}
+
+.sidebar-collapse-btn {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 8px;
+    transition: var(--transition-smooth);
+}
+
+.sidebar-collapse-btn:hover { color: var(--text-primary); background: rgba(255,255,255,0.02); }
+
+.sidebar-collapse-btn i { font-size: 12px; }
+
+/* Ensure collapse button sits above header content */
+.sidebar-header { position: relative; }
+.sidebar-collapse-btn { z-index: 30; }
+
+/* Remove brand logo square if present */
+.brand-logo { display: none; }
+
 .conversations-list {
     display: flex;
     flex-direction: column;
@@ -215,7 +313,7 @@ body {
 
 .list-placeholder {
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 15px;
     text-align: center;
     padding: 20px;
     border: 1px dashed rgba(255, 255, 255, 0.05);
@@ -268,7 +366,7 @@ body {
 }
 
 .conversation-name {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
@@ -294,7 +392,7 @@ body {
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 13px;
+    font-size: 14px;
     padding: 4px;
     border-radius: 4px;
     transition: var(--transition-smooth);
@@ -364,7 +462,7 @@ body {
 }
 
 .drop-text {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--text-secondary);
     margin-bottom: 4px;
 }
@@ -375,7 +473,7 @@ body {
 }
 
 .drop-subtext {
-    font-size: 9px;
+    font-size: 11px;
     color: var(--text-muted);
 }
 
@@ -428,7 +526,7 @@ body {
 }
 
 .doc-name {
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
@@ -437,7 +535,7 @@ body {
 }
 
 .doc-status {
-    font-size: 10px;
+    font-size: 12px;
     display: flex;
     align-items: center;
     gap: 5px;
@@ -453,7 +551,7 @@ body {
 }
 
 .badge {
-    font-size: 9px;
+    font-size: 11px;
     padding: 2px 6px;
     border-radius: 4px;
     font-weight: 600;
@@ -496,7 +594,7 @@ body {
     display: flex;
     align-items: center;
     gap: 5px;
-    font-size: 10px;
+    font-size: 12px;
     color: var(--text-secondary);
     margin-top: 6px;
     font-weight: 500;
@@ -505,7 +603,7 @@ body {
 }
 
 .doc-fiscal-row i {
-    font-size: 10px;
+    font-size: 12px;
     color: var(--text-muted);
 }
 
@@ -582,12 +680,12 @@ body {
 
 .active-convo-info h1 {
     font-family: var(--font-outfit);
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
 }
 
 .active-convo-info p {
-    font-size: 11px;
+    font-size: 13px;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -670,7 +768,7 @@ body {
     border: none;
     color: var(--text-primary);
     font-family: var(--font-jakarta);
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 500;
     outline: none;
     cursor: pointer;
@@ -688,7 +786,7 @@ body {
     flex-grow: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 30px;
+    padding: 30px 40px 30px 30px;
     display: flex;
     flex-direction: column;
     gap: 24px;
@@ -710,14 +808,14 @@ body {
 
 .welcome-screen h2 {
     font-family: var(--font-outfit);
-    font-size: 28px;
+    font-size: 30px;
     font-weight: 700;
     margin-bottom: 12px;
 }
 
 .welcome-screen p {
     color: var(--text-secondary);
-    font-size: 15px;
+    font-size: 16px;
     line-height: 1.6;
     margin-bottom: 40px;
 }
@@ -760,13 +858,13 @@ body {
 
 .step-card h3 {
     font-family: var(--font-outfit);
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
     margin-bottom: 8px;
 }
 
 .step-card p {
-    font-size: 12px;
+    font-size: 14px;
     color: var(--text-muted);
     line-height: 1.5;
     margin-bottom: 0;
@@ -776,7 +874,7 @@ body {
 .message {
     display: flex;
     gap: 15px;
-    max-width: 80%;
+    max-width: 92%;
     animation: slideUp 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
@@ -1083,6 +1181,7 @@ body {
     box-shadow: var(--shadow-premium);
     backdrop-filter: blur(10px);
     max-width: 100%;
+    width: fit-content;
 }
 
 /* Custom scrollbars for responsive tables */
@@ -1103,13 +1202,13 @@ body {
 }
 
 .premium-table {
-    width: 100%;
+    width: auto;
     border-collapse: collapse;
     font-family: var(--font-jakarta);
     font-size: 13px;
     text-align: left;
     color: var(--text-primary);
-    table-layout: fixed;
+    table-layout: auto;
 }
 
 .premium-table th {
@@ -1144,33 +1243,33 @@ body {
     border-bottom: none;
 }
 
-/* Precise Column Widths to Prevent wrapping into broken columns */
+/* Flexible Column Widths - Adjusts based on content */
 .premium-table th:nth-child(1),
 .premium-table td:nth-child(1) {
-    width: 15%;
-    min-width: 140px;
+    width: auto;
+    min-width: auto;
     word-break: break-word;
 }
 .premium-table th:nth-child(2),
 .premium-table td:nth-child(2) {
-    width: 15%;
-    min-width: 130px;
+    width: auto;
+    min-width: auto;
     word-break: break-word;
 }
 .premium-table th:nth-child(3),
 .premium-table td:nth-child(3) {
-    width: 35%;
-    min-width: 250px;
+    width: auto;
+    min-width: auto;
 }
 .premium-table th:nth-child(4),
 .premium-table td:nth-child(4) {
-    width: 20%;
-    min-width: 180px;
+    width: auto;
+    min-width: auto;
 }
 .premium-table th:nth-child(5),
 .premium-table td:nth-child(5) {
-    width: 15%;
-    min-width: 140px;
+    width: auto;
+    min-width: auto;
     word-break: break-word;
 }
 

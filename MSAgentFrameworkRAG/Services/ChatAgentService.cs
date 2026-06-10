@@ -104,9 +104,9 @@ namespace MSAgentFrameworkRAG.Services
                 _openAiSettings.ApiKey,
                 _rerankService,
                 _dbContext,
-                embeddingOptions: new OpenAI.Embeddings.EmbeddingGenerationOptions { Dimensions = 512 },
+                embeddingOptions: new OpenAI.Embeddings.EmbeddingGenerationOptions { Dimensions = 1024 },
                 filter: filter,
-                embeddingModel: _openAiSettings.EmbeddingModel ?? "text-embedding-3-small",
+                embeddingModel: _openAiSettings.EmbeddingModel ?? "text-embedding-3-large",
                 topK: _pineconeSettings.QueryTopK > 0 ? _pineconeSettings.QueryTopK : 40
             );
 
@@ -278,9 +278,9 @@ namespace MSAgentFrameworkRAG.Services
                 _openAiSettings.ApiKey,
                 _rerankService,
                 _dbContext,
-                embeddingOptions: new OpenAI.Embeddings.EmbeddingGenerationOptions { Dimensions = 512 },
+                embeddingOptions: new OpenAI.Embeddings.EmbeddingGenerationOptions { Dimensions = 1024 },
                 filter: filter,
-                embeddingModel: _openAiSettings.EmbeddingModel ?? "text-embedding-3-small",
+                embeddingModel: _openAiSettings.EmbeddingModel ?? "text-embedding-3-large",
                 topK: _pineconeSettings.QueryTopK > 0 ? _pineconeSettings.QueryTopK : 40
             );
 

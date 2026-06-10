@@ -6,7 +6,7 @@ namespace MSAgentFrameworkRAG
         public string ApiKey { get; set; } = string.Empty;
         public string ChatModel { get; set; } = "gpt-4o-mini";
         public string RagChatModel { get; set; } = "gpt-5-mini";
-        public string EmbeddingModel { get; set; } = "text-embedding-3-small";
+        public string EmbeddingModel { get; set; } = "text-embedding-3-large";
     }
 
     public class PineconeSettings

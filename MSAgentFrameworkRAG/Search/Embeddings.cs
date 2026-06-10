@@ -14,7 +14,7 @@ namespace MSAgentFrameworkRAG
             Func<T, string> contentSelector,
             string apiKey,
             EmbeddingGenerationOptions? options = null,
-            string model = "text-embedding-3-small",
+            string model = "text-embedding-3-large",
             Func<T, Pinecone.Metadata>? metadataBuilder = null)
         {
             var list = items.ToList();

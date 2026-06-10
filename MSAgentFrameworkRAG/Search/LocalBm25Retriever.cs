@@ -48,16 +48,18 @@ namespace MSAgentFrameworkRAG
             }
 
             // 2. Fetch baseline matching chunks from database
+            // Build base query and apply optional document ID filter first
             IQueryable<DbParentChunk> chunkQuery = dbContext.ParentChunks.AsNoTracking();
             if (documentIds != null && documentIds.Count > 0)
             {
-                chunkQuery = chunkQuery.Where(p => documentIds.Contains(p.DocumentId));
+                chunkQuery = chunkQuery.Where(c => documentIds.Contains(c.DocumentId));
             }
 
-            // Query database for parent chunks containing at least one keyword
-            var matchingChunks = await chunkQuery
-                .Where(c => keywords.Any(k => c.Content.Contains(k)))
-                .ToListAsync();
+            // Filter to chunks that match any keyword using EF.Functions.Like
+            // Use string concatenation for the LIKE pattern (EF Core cannot translate string.Format or interpolated strings here)
+            chunkQuery = chunkQuery.Where(c => keywords.Any(kw => EF.Functions.Like(c.Content, "%" + kw + "%")));
+
+            var matchingChunks = await chunkQuery.ToListAsync().ConfigureAwait(false);
 
             if (!matchingChunks.Any())
             {

@@ -49,12 +49,16 @@ namespace MSAgentFrameworkRAG.Services
                     Model = _pineconeSettings.RerankModel ?? "bge-reranker-v2-m3",
                     Query = query,
                     TopN = _pineconeSettings.RerankTopN,
-                    ReturnDocuments = false, // Set to false to save bandwidth (we map back to candidates locally)
+                    ReturnDocuments = true, // Set to false to save bandwidth (we map back to candidates locally)
                     Documents = candidates.Select((c, idx) => new Dictionary<string, object?>
                     {
                         { "id", idx.ToString() },
                         { "text", c.Text }
                     }).ToList()
+                    //Parameters = new Dictionary<string, object>
+                    //{
+                    //    { "truncate", "END" }
+                    //}
                 };
 
                 // 3. Invoke native SDK Rerank
