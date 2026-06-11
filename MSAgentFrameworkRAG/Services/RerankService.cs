@@ -54,11 +54,11 @@ namespace MSAgentFrameworkRAG.Services
                     {
                         { "id", idx.ToString() },
                         { "text", c.Text }
-                    }).ToList()
-                    //Parameters = new Dictionary<string, object>
-                    //{
-                    //    { "truncate", "END" }
-                    //}
+                    }).ToList(),
+                    Parameters = new Dictionary<string, object?>
+                    {
+                        { "truncate", "END" }
+                    }
                 };
 
                 // 3. Invoke native SDK Rerank
@@ -70,37 +70,21 @@ namespace MSAgentFrameworkRAG.Services
                     "[Rerank Service] Rerank completed in {ElapsedMs:F2}ms. Model used: '{Model}'", 
                     elapsedMs, response.Model);
 
-                // 4. Map, filter, and score results based on configured threshold
-                var threshold = _pineconeSettings.RerankScoreThreshold;
+                // 4. Map, score, and collect results (no threshold filtering)
                 var finalCitations = new List<SourceCitation>();
 
                 foreach (var rankedDoc in response.Data)
                 {
-                    if (rankedDoc.Score >= threshold)
-                    {
-                        var originalCandidate = candidates[rankedDoc.Index];
-                        originalCandidate.RerankScore = rankedDoc.Score;
-                        originalCandidate.QueryTimeMs = elapsedMs;
-                        
-                        finalCitations.Add(originalCandidate);
-                    }
-                    else
-                    {
-                        _logger.LogDebug(
-                            "[Rerank Service] Chunk index {Index} rejected due to low relevance score ({Score:F4} < {Threshold:F2}).", 
-                            rankedDoc.Index, rankedDoc.Score, threshold);
-                    }
+                    var originalCandidate = candidates[rankedDoc.Index];
+                    originalCandidate.RerankScore = rankedDoc.Score;
+                    originalCandidate.QueryTimeMs = elapsedMs;
+                    
+                    finalCitations.Add(originalCandidate);
                 }
 
                 _logger.LogInformation(
-                    "[Rerank Service] Returning {Count} high-relevance chunks out of {Total} candidates after score filter (>= {Threshold}).", 
-                    finalCitations.Count, candidates.Count, threshold);
-
-                if (!finalCitations.Any())
-                {
-                    _logger.LogWarning("[Rerank Service] 0 chunks passed the relevance threshold. Falling back to top 3 raw candidate chunks.");
-                    return candidates.Take(Math.Min(3, candidates.Count)).ToList();
-                }
+                    "[Rerank Service] Returning all {Count} ranked chunks from the reranker (no score threshold applied).", 
+                    finalCitations.Count);
 
                 return finalCitations;
             }

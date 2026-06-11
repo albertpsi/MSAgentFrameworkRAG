@@ -273,9 +273,17 @@ body {
     margin-top: 4px;
 }
 
-/* Slightly reduce message bubble table cell padding for wide displays */
-.msg-bubble .table-container td, .msg-bubble .table-container th {
-    padding: 12px 14px;
+/* Expand assistant bubbles that contain comparison tables */
+.message.assistant:has(.table-container) {
+    max-width: 100%;
+    width: 100%;
+}
+
+.msg-bubble:has(.table-container) {
+    padding: 10px 12px;
+    overflow-x: visible;
+    word-break: normal;
+    overflow-wrap: normal;
 }
 
 .sidebar-collapse-btn {
@@ -920,6 +928,13 @@ body {
     flex-direction: column;
     gap: 6px;
     max-width: 100%;
+    min-width: 0;
+    flex: 1;
+}
+
+.message.assistant:has(.table-container) .msg-content-wrapper {
+    max-width: 100%;
+    width: 100%;
 }
 
 .msg-bubble {
@@ -1174,24 +1189,24 @@ body {
 /* PREMIUM RESPONSIVE TABLE STYLING */
 .table-container {
     overflow-x: auto;
-    margin: 20px 0;
-    border-radius: 12px;
+    margin: 16px 0;
+    border-radius: 14px;
     border: 1px solid var(--border-color);
     background: var(--bg-card);
     box-shadow: var(--shadow-premium);
     backdrop-filter: blur(10px);
+    width: 100%;
     max-width: 100%;
-    width: fit-content;
+    -webkit-overflow-scrolling: touch;
 }
 
-/* Custom scrollbars for responsive tables */
 .table-container::-webkit-scrollbar {
-    height: 6px;
+    height: 8px;
 }
 .table-container::-webkit-scrollbar-track {
     background: rgba(255, 255, 255, 0.02);
-    border-bottom-left-radius: 12px;
-    border-bottom-right-radius: 12px;
+    border-bottom-left-radius: 14px;
+    border-bottom-right-radius: 14px;
 }
 .table-container::-webkit-scrollbar-thumb {
     background: var(--scrollbar-thumb);
@@ -1202,85 +1217,235 @@ body {
 }
 
 .premium-table {
-    width: auto;
-    border-collapse: collapse;
+    width: 100%;
+    min-width: 860px;
+    border-collapse: separate;
+    border-spacing: 0;
     font-family: var(--font-jakarta);
-    font-size: 13px;
+    font-size: 13.5px;
     text-align: left;
     color: var(--text-primary);
-    table-layout: auto;
+    table-layout: fixed;
+}
+
+.premium-table th,
+.premium-table td {
+    padding: 16px 20px;
+    vertical-align: top;
+    border-bottom: 1px solid var(--border-color);
+    word-break: normal;
+    overflow-wrap: break-word;
+    hyphens: none;
 }
 
 .premium-table th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
     background: var(--table-header-bg);
     color: var(--text-primary);
-    font-weight: 700;
-    padding: 14px 18px;
+    font-weight: 600;
+    padding: 14px 20px;
     border-bottom: 2px solid var(--table-header-border);
     font-family: var(--font-outfit);
-    text-transform: uppercase;
-    font-size: 11px;
-    letter-spacing: 0.5px;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    line-height: 1.35;
+    text-transform: none;
+}
+
+.premium-table th .th-label {
+    display: inline-block;
+    max-width: 100%;
 }
 
 .premium-table td {
-    padding: 14px 18px;
-    border-bottom: 1px solid var(--border-color);
     color: var(--text-secondary);
-    vertical-align: top;
-    line-height: 1.6;
+    line-height: 1.65;
+    min-height: 52px;
 }
 
-.premium-table tr:nth-child(even) {
-    background: rgba(255, 255, 255, 0.01);
+.premium-table tbody tr {
+    transition: background-color 0.2s ease;
 }
 
-.premium-table tr:hover {
+.premium-table tbody tr:nth-child(even) {
+    background: rgba(121, 40, 202, 0.02);
+}
+
+.dark-theme .premium-table tbody tr:nth-child(even) {
+    background: rgba(140, 82, 255, 0.04);
+}
+
+.premium-table tbody tr:hover {
     background: var(--bg-secondary);
 }
 
-.premium-table tr:last-child td {
+.premium-table tbody tr:last-child td {
     border-bottom: none;
 }
 
-/* Flexible Column Widths - Adjusts based on content */
-.premium-table th:nth-child(1),
-.premium-table td:nth-child(1) {
-    width: auto;
-    min-width: auto;
-    word-break: break-word;
-}
-.premium-table th:nth-child(2),
-.premium-table td:nth-child(2) {
-    width: auto;
-    min-width: auto;
-    word-break: break-word;
-}
-.premium-table th:nth-child(3),
-.premium-table td:nth-child(3) {
-    width: auto;
-    min-width: auto;
-}
-.premium-table th:nth-child(4),
-.premium-table td:nth-child(4) {
-    width: auto;
-    min-width: auto;
-}
-.premium-table th:nth-child(5),
-.premium-table td:nth-child(5) {
-    width: auto;
-    min-width: auto;
-    word-break: break-word;
+/* Dynamic column widths by semantic type */
+.premium-table .col-label {
+    width: 13%;
+    min-width: 130px;
 }
 
-/* Inline typography tweaks inside tables */
-.premium-table td strong {
+.premium-table .col-details {
+    width: 26%;
+    min-width: 240px;
+}
+
+.premium-table .col-reference {
+    width: 12%;
+    min-width: 120px;
+}
+
+.premium-table .col-nuances {
+    width: 28%;
+    min-width: 260px;
+}
+
+.premium-table .col-source {
+    width: 21%;
+    min-width: 200px;
+}
+
+.premium-table .col-default {
+    width: auto;
+    min-width: 140px;
+}
+
+/* 3-column tables */
+.premium-table.cols-3 .col-label { width: 18%; min-width: 140px; }
+.premium-table.cols-3 .col-details { width: 42%; min-width: 280px; }
+.premium-table.cols-3 .col-reference { width: 18%; min-width: 140px; }
+.premium-table.cols-3 .col-nuances { width: 42%; min-width: 280px; }
+.premium-table.cols-3 .col-source { width: 22%; min-width: 180px; }
+
+/* 4-column tables */
+.premium-table.cols-4 .col-label { width: 16%; min-width: 130px; }
+.premium-table.cols-4 .col-details { width: 30%; min-width: 220px; }
+.premium-table.cols-4 .col-reference { width: 14%; min-width: 120px; }
+.premium-table.cols-4 .col-nuances { width: 26%; min-width: 220px; }
+.premium-table.cols-4 .col-source { width: 24%; min-width: 180px; }
+
+/* Keep short labels and references on one line when possible */
+.premium-table .col-label,
+.premium-table .col-reference {
+    white-space: normal;
+}
+
+.premium-table td.col-label {
+    font-weight: 600;
     color: var(--text-primary);
 }
-.premium-table td br {
-    margin-bottom: 6px;
-    content: "";
+
+/* Source column: break long paths cleanly */
+.premium-table .col-source,
+.premium-table td.col-source {
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+.table-source-link {
+    color: var(--accent-color);
+    text-decoration: none;
+    font-weight: 600;
+    word-break: normal;
+}
+
+.table-source-link:hover {
+    text-decoration: underline;
+}
+
+.table-source-path {
     display: block;
+    margin-top: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(121, 40, 202, 0.06);
+    font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    word-break: break-all;
+    line-height: 1.4;
+}
+
+.dark-theme .table-source-path {
+    background: rgba(140, 82, 255, 0.1);
+}
+
+/* Bullet lists inside table cells — markers kept inside cell bounds */
+.table-cell-preamble {
+    margin-bottom: 10px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+.table-cell-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.table-cell-list li {
+    position: relative;
+    padding-left: 1.15em;
+    margin-bottom: 8px;
+    line-height: 1.6;
+}
+
+.table-cell-list li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: var(--accent-color);
+    font-weight: 700;
+    line-height: 1.6;
+}
+
+.table-cell-list li:last-child {
+    margin-bottom: 0;
+}
+
+/* Bullet lists in chat bubbles (outside tables) */
+.msg-bubble ul {
+    margin: 10px 0;
+    padding: 0;
+    list-style: none;
+}
+
+.msg-bubble ul li {
+    position: relative;
+    padding-left: 1.15em;
+    margin-bottom: 8px;
+    line-height: 1.6;
+}
+
+.msg-bubble ul li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: var(--accent-color);
+    font-weight: 700;
+    line-height: 1.6;
+}
+
+.msg-bubble ul li:last-child {
+    margin-bottom: 0;
+}
+
+.premium-table td strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.premium-table td br + br {
+    display: none;
 }
 
 /* Chat bubble markdown typography styling */

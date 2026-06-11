@@ -35,7 +35,7 @@ To prepare the RAG platform for massive, highly scalable multi-agent environment
 * **`IMetadataExtractionService`**: Extracts structured, normalized contract metadata fields from raw uploaded agreement files (PDF or Word) using the dedicated extraction agent.
 * **`IDocumentService` / `IConversationService`**: Handle standard relational queries for documents and chat logs in the SQL database.
 * **`SessionCache`**: In-memory singleton caching preserving Microsoft Agents AI state across conversations.
-* **Distributed Layout-Aware Docling Parser**: Offloads PDF and Word parsing to a dedicated FastAPI Python service using IBM Docling. The C# backend communicates asynchronously with the parser via HTTP triggers and a shared storage volume, removing heavy native PDF/Word parsing dependencies from the C# application.
+* **Distributed Layout-Aware Docling Parser (Google Colab GPU)**: Offloads PDF and Word parsing to a remote FastAPI Python worker hosted on a Google Colab T4 GPU (exposed via Ngrok). The C# backend uploads files directly via Multipart Form POST, receiving the complete parsed JSON response synchronously. This design eliminates CPU memory exhaustion (`std::bad_alloc`) and increases parsing speed by over **80x** (converting a 41-page PDF in 36 seconds).
 
 ---
 
@@ -72,8 +72,8 @@ flowchart TD
     end
 
     subgraph ParsingLayer ["5. Distributed Parsing Worker"]
-        Docling_Worker["FastAPI Python Worker (docling-worker)"]
-        HuggingFace["Local HF Model Cache (Layout/Table Models)"]
+        Docling_Worker["Google Colab T4 GPU FastAPI Worker"]
+        HuggingFace["Colab GPU HF Model Cache (Layout/Table Models)"]
     end
 
     subgraph AILayer ["6. AI & Cognitive Services"]
@@ -88,11 +88,13 @@ flowchart TD
     Proxy -->|"Proxy Redirect (Port 61622)"| Controllers
     
     Controllers -->|"Dependency Injection"| Services
-    Controllers -->|"Triggers parsing call (HTTP /api/parse)"| Docling_Worker
+    Controllers -->|"Uploads document (Multipart Form POST /parse)"| Docling_Worker
     Controllers -->|"Schedules polling via Quartz"| Quartz
     
     Docling_Worker -->|"Reads layout weights"| HuggingFace
-    Docling_Worker -->|"Writes parsed document JSON"| Shared_Vol
+    Docling_Worker -->>|"Returns parsed JSON synchronously"| Controllers
+    
+    Controllers -->|"Writes parsed JSON to disk ({id}.json)"| Shared_Vol
     
     Quartz -->|"Checks parsed JSON in"| Shared_Vol
     Quartz -->|"Triggers downstream ingestion"| Services
@@ -357,19 +359,26 @@ sequenceDiagram
     autonumber
     actor User as "Client UI (Next.js)"
     participant Ctrl as DocumentsController
-    participant Job as "Quartz FileIngestionJob"
+    participant Colab as "Google Colab GPU (Ngrok)"
+    participant Disk as "Parsed Storage (JSON)"
+    participant Job as "Quartz Ingestion Polling Job"
     participant Service as DocumentIngestionService
     participant MetaAgent as "Metadata Agent (LLM)"
     participant DB as "SQL Server (EF Core)"
     participant Pinecone as "Pinecone Vector DB"
 
     User->>Ctrl: POST /api/upload
-    Note over Ctrl: Create Safe Filename & Write
+    Note over Ctrl: Save raw document to disk
     Ctrl->>DB: Add UploadedDocument (Status: Pending)
-    Ctrl->>Job: Schedule Ingestion Job
-    Ctrl-->>User: HTTP 200 OK
     
-    Note over Job: Quartz Background Engine Starts Async
+    Ctrl->>Colab: POST /parse (Multipart Form File)
+    Note over Colab: Parses on T4 GPU in parallel
+    Colab-->>Ctrl: Returns complete parsed JSON
+    Ctrl->>Disk: Writes {documentId}.json to disk
+    Ctrl-->>User: HTTP 200 OK (Status: Pending)
+    
+    Note over Job: Quartz Background Engine Polling Job
+    Job->>Disk: Detects {documentId}.json
     Job->>Service: IngestDocumentAsync
     Service->>DB: Update Status to "Processing"
     
@@ -390,10 +399,10 @@ sequenceDiagram
         Note over Service: Flag this document as isLatest = true
     end
     
-    Note over Service: Split document into chunks (Size 3000, Overlap 500)
+    Note over Service: Split into Paragraph & Sentence-boundary chunks (1000 chars)
     Service->>Service: Generate Chunks
     
-    Note over Service: Generate 512-dim embeddings via OpenAI
+    Note over Service: Generate 1024-dim embeddings via OpenAI
     Service->>Pinecone: Upsert Vector Batches
     Pinecone-->>Service: Acknowledge Vector Writes
     
@@ -649,52 +658,35 @@ Add connection details and two-stage retrieval settings in your [appsettings.jso
    ```
    Open `http://localhost:3000` to interact with the application.
 
-### 5.3 Distributed Docling Parsing Service Setup
+### 5.3 Distributed Docling Parsing Service Setup (Google Colab GPU)
 
-The document layout-aware parsing is executed by a separate Python FastAPI worker (`docling-worker`). The worker is configured by default to run in resource-constrained environments (like a **6–8 GB RAM** container/VM on CPU) using memory-safe execution parameters.
+To eliminate local CPU bottlenecks, RAM limitations, and potential `std::bad_alloc` OOMs, the document layout-aware parsing is executed on a remote **Google Colab T4 GPU** instance (using CUDA parallel tensor acceleration) and exposed via an Ngrok tunnel.
 
-#### A. Standard Startup (Memory-Safe CPU Mode)
-This configuration uses **page-by-page sequential processing** and restricts PyTorch to a single thread to completely avoid virtual memory fragmentation and `std::bad_alloc` OOM issues:
+#### A. Starting the Remote GPU Worker (Google Colab)
+In your Google Colab notebook (configured with a T4 GPU runtime), copy and run the script in [app.py](file:///d:/Codes/MSAgentFrameworkRAG/docling-worker/app.py):
 
-```bash
-cd docling-worker
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-
-# Start FastAPI server on port 8000
-uvicorn app:app --host 127.0.0.1 --port 8000
-```
-
-*Under the hood, `app.py` enforces `OMP_NUM_THREADS=1` and `images_scale=0.8` to keep RAM usage small and constant.*
-
-#### B. High-Performance Testing (32 GB+ RAM Mode)
-If you are running the service on a higher-resource system (e.g. a local developer machine with **32 GB of RAM** or a GPU-accelerated cloud instance) and want to maximize parsing throughput, you can bypass the sequential single-page bottlenecks.
-
-To test this high-performance scenario, adjust [app.py](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/docling-worker/app.py):
-
-1. **Enable Multi-threaded CPU Execution**:
-   Modify or remove the thread limits at the very top of `app.py` to allow PyTorch to utilize multiple cores (e.g., 4 threads):
-   ```python
-   os.environ["OMP_NUM_THREADS"] = "4"
-   os.environ["MKL_NUM_THREADS"] = "4"
+1. **Install Dependencies**:
+   ```bash
+   pip install docling fastapi uvicorn pyngrok pydantic requests pandas pypdfium2 python-multipart onnxruntime
    ```
-2. **Increase Batch Processing & Scaling**:
-   In the converter configuration block, increase the page batch limits and image resolution scale:
-   ```python
-   pipeline_options.layout_batch_size = 4
-   pipeline_options.table_batch_size = 4
-   pipeline_options.images_scale = 1.0  # Full resolution
-   pipeline_options.accelerator_options.num_threads = 4
+2. **Launch the FastAPI Server & Ngrok Tunnel**:
+   Execute `app.py` in Colab. It will automatically initialize the Docling converter on CUDA, start a background Uvicorn process, and output your public worker tunnel URL:
    ```
-3. **Bypass Page-by-Page Split Loop**:
-   Modify `run_parsing_task` to run the direct converter rather than the page range loop:
-   ```python
-   # Direct full document parse
-   result = converter.convert(pdf_path)
-   doc = result.document
+   ==================================================
+   PUBLIC WORKER URL: https://xxxx-xxxx-xxxx.ngrok-free.dev
+   ==================================================
    ```
-   *This allows Docling to utilize full parallel tensor operations across all pages, yielding up to 3–5x faster processing on high-memory systems.*
+
+#### B. Configuring the C# Backend
+1. Open your C# `appsettings.json` (or set the Docker Compose environment variable `Parser__DoclingWorkerUrl`).
+2. Update the `DoclingWorkerUrl` parameter with your active public Ngrok tunnel URL:
+   ```json
+   "Parser": {
+     "Provider": "Docling",
+     "DoclingWorkerUrl": "https://xxxx-xxxx-xxxx.ngrok-free.dev"
+   }
+   ```
+   *Note: The C# backend automatically passes the `ngrok-skip-browser-warning` header to bypass Ngrok landing pages.*
 
 ---
 

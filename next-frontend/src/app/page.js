@@ -366,11 +366,66 @@ export default function Home() {
     let inTable = false;
     let tableRows = [];
 
+    const getColumnType = (headerText, colIndex, totalCols) => {
+      const h = headerText.toLowerCase();
+      if (h.includes('source') || h.includes('document')) return 'source';
+      if (h.includes('reference') || (h.includes('clause') && h.includes('section')) || h.includes('section')) return 'reference';
+      if (h.includes('nuance') || h.includes('scope') || h.includes('limitation')) return 'nuances';
+      if (h.includes('obligation') || h.includes('detail') || h.includes('remedy') || h.includes('outcome')) return 'details';
+      if (h.includes('type') || h.includes('condition') || h.includes('trigger') || h.includes('topic')) return 'label';
+
+      const positionTypes = ['label', 'details', 'reference', 'nuances', 'source'];
+      if (colIndex < positionTypes.length) return positionTypes[colIndex];
+      return totalCols <= 3 ? 'details' : 'default';
+    };
+
+    const stripBulletMarker = (text) => text.trim().replace(/^[-•]\s+/, '');
+
+    const formatTableCell = (rawCell, colType) => {
+      let content = rawCell
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/&lt;br\s*\/?&gt;/gi, '<br>')
+        .replace(/&amp;nbsp;/g, '&nbsp;');
+
+      if (colType === 'source') {
+        content = content.replace(
+          /(?<!\]\()((?:wwwroot[/\\])[^\s<)]+)/gi,
+          '<span class="table-source-path">$1</span>'
+        );
+      }
+
+      content = content.replace(
+        /\[([^\]]+)\]\(([^)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer" class="table-source-link">$1</a>'
+      );
+
+      const bulletParts = content
+        .split(/(?:<br\s*\/?>|\n)\s*[-•]\s+/)
+        .map(stripBulletMarker)
+        .filter((part) => part);
+
+      if (bulletParts.length > 1) {
+        let preamble = '';
+        let listItems = bulletParts;
+
+        if (/:\s*$/.test(bulletParts[0])) {
+          preamble = `<div class="table-cell-preamble">${bulletParts[0]}</div>`;
+          listItems = bulletParts.slice(1);
+        }
+
+        if (listItems.length > 0) {
+          return `${preamble}<ul class="table-cell-list">${listItems.map((part) => `<li>${part}</li>`).join('')}</ul>`;
+        }
+      }
+
+      return content;
+    };
+
     const renderTableHtml = (rows) => {
       if (rows.length < 2) return rows.join('\n');
-      
+
       const parseRow = (rowStr) => {
-        const cells = rowStr.split('|').map(c => c.trim());
+        const cells = rowStr.split('|').map((c) => c.trim());
         if (cells[0] === '') cells.shift();
         if (cells[cells.length - 1] === '') cells.pop();
         return cells;
@@ -379,14 +434,23 @@ export default function Home() {
       const headerCells = parseRow(rows[0]);
       const separatorRow = rows[1];
       const isSeparator = /^[|:\-\s]+$/.test(separatorRow);
-      
+
       if (!isSeparator) return rows.join('\n');
 
-      let html = '<div class="table-container"><table class="premium-table">';
+      const colCount = headerCells.length;
+      const columnTypes = headerCells.map((header, index) => getColumnType(header, index, colCount));
+
+      let html = `<div class="table-container"><table class="premium-table cols-${colCount}">`;
+      html += '<colgroup>';
+      for (const colType of columnTypes) {
+        html += `<col class="col-${colType}" />`;
+      }
+      html += '</colgroup>';
+
       html += '<thead><tr>';
-      for (let cell of headerCells) {
-        let formattedCell = cell.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        html += `<th>${formattedCell}</th>`;
+      for (let i = 0; i < headerCells.length; i++) {
+        const formattedCell = headerCells[i].replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        html += `<th class="col-${columnTypes[i]}" data-col-type="${columnTypes[i]}"><span class="th-label">${formattedCell}</span></th>`;
       }
       html += '</tr></thead>';
 
@@ -396,11 +460,9 @@ export default function Home() {
         html += '<tr>';
         for (let j = 0; j < headerCells.length; j++) {
           const cell = cells[j] || '';
-          let formattedCell = cell
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/&lt;br\s*\/?&gt;/gi, '<br>') 
-            .replace(/&amp;nbsp;/g, '&nbsp;');
-          html += `<td>${formattedCell}</td>`;
+          const colType = columnTypes[j];
+          const formattedCell = formatTableCell(cell, colType);
+          html += `<td class="col-${colType}" data-col-type="${colType}">${formattedCell}</td>`;
         }
         html += '</tr>';
       }

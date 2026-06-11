@@ -111,15 +111,10 @@ namespace MSAgentFrameworkRAG
                 return [];
             }
 
-            Console.WriteLine(candidatePool.Count);
+            Console.WriteLine($"[Search Adapter] Fusion candidate pool size: {candidatePool.Count}");
 
-            // 3. Fine Native Reranking & Score Filtering (Stage 2)
-            var reranked = await _rerankService.RerankAsync(query, candidatePool, cancellationToken).ConfigureAwait(false);
-
-            Console.WriteLine(reranked.Count);
-
-            // 4. Post-Rerank Parent-Child Context Swapping (only for the final top-k candidates to prevent token limit errors during rerank)
-            var parentIds = reranked
+            // 3. Pre-Rerank Parent-Child Context Swapping (enables the reranker to evaluate full context/headings)
+            var parentIds = candidatePool
                 .Select(c => c.ParentId)
                 .Where(id => !string.IsNullOrEmpty(id))
                 .Distinct()
@@ -135,7 +130,7 @@ namespace MSAgentFrameworkRAG
                         .ToDictionaryAsync(p => p.Id, p => p.Content)
                         .ConfigureAwait(false);
 
-                    foreach (var citation in reranked)
+                    foreach (var citation in candidatePool)
                     {
                         if (!string.IsNullOrEmpty(citation.ParentId) && parentChunksMap.TryGetValue(citation.ParentId, out var parentContent))
                         {
@@ -145,15 +140,32 @@ namespace MSAgentFrameworkRAG
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[Post-Rerank Parent Swap ERROR] Failed to batch fetch parent chunks: {ex.Message}");
+                    Console.WriteLine($"[Pre-Rerank Parent Swap ERROR] Failed to batch fetch parent chunks: {ex.Message}");
                 }
             }
 
-            // 5. Cache results so the ChatAgentService can retrieve them for citations
+            // 4. De-duplicate candidates by their parent text to avoid sending duplicate context to the reranker and LLM
+            var uniqueCandidatePool = new List<SourceCitation>();
+            foreach (var candidate in candidatePool)
+            {
+                if (!uniqueCandidatePool.Any(c => c.Text.Equals(candidate.Text, StringComparison.Ordinal)))
+                {
+                    uniqueCandidatePool.Add(candidate);
+                }
+            }
+
+            Console.WriteLine($"[Search Adapter] De-duplicated candidate pool size: {uniqueCandidatePool.Count}");
+
+            // 5. Fine Native Reranking & Score Filtering (Stage 2)
+            var reranked = await _rerankService.RerankAsync(query, uniqueCandidatePool, cancellationToken).ConfigureAwait(false);
+
+            Console.WriteLine($"[Search Adapter] High-precision reranked count: {reranked.Count}");
+
+            // 6. Cache results so the ChatAgentService can retrieve them for citations
             LastSearchResults.Clear();
             LastSearchResults.AddRange(reranked);
 
-            // 6. Return results to Microsoft Agents AI reasoning loop
+            // 7. Return results to Microsoft Agents AI reasoning loop
             return reranked.Select(c => new TextSearchProvider.TextSearchResult
             {
                 SourceName = c.SourceName,
@@ -202,6 +214,7 @@ namespace MSAgentFrameworkRAG
                     ?? string.Empty;
 
                 var parentId = GetMetadataValue(metadata, "parentId");
+                Console.WriteLine($"[Dense Candidate debug] Vector ID: {match.Id}, parentId: '{parentId}', Text preview: '{text.Substring(0, Math.Min(35, text.Length))}'");
                 var chunkIndex = GetMetadataValue(metadata, "chunkIndex");
                 var pageNumber = GetMetadataValue(metadata, "pageNumber");
                 var sourceName = GetMetadataValue(metadata, "sourceName")
@@ -243,7 +256,16 @@ namespace MSAgentFrameworkRAG
 
         private static string? GetMetadataValue(Metadata metadata, string key)
         {
-            return metadata.TryGetValue(key, out var value) ? value?.ToString() : null;
+            if (!metadata.TryGetValue(key, out var value) || value == null)
+            {
+                return null;
+            }
+            var str = value.ToString();
+            if (str.StartsWith("\"") && str.EndsWith("\"") && str.Length >= 2)
+            {
+                str = str.Substring(1, str.Length - 2);
+            }
+            return str;
         }
     }
 }

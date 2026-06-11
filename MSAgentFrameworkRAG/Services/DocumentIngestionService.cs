@@ -260,6 +260,42 @@ namespace MSAgentFrameworkRAG.Services
             var chunks = new List<TextChunk>();
             int globalChunkIndex = 0;
 
+            // Strategy 1: Pre-process sections to build hierarchical paragraph heading mapping
+            var paragraphParentMap = new Dictionary<TextSection, string>();
+            var currentHeadingSections = new List<TextSection>();
+
+            foreach (var section in doc.Sections)
+            {
+                if (section is TextSection textSection)
+                {
+                    string text = textSection.ParagraphText;
+                    if (string.IsNullOrWhiteSpace(text)) continue;
+
+                    if (text.StartsWith("### "))
+                    {
+                        if (currentHeadingSections.Count > 0)
+                        {
+                            var consolidatedText = string.Join("\n\n", currentHeadingSections.Select(s => s.ParagraphText));
+                            foreach (var sec in currentHeadingSections)
+                            {
+                                paragraphParentMap[sec] = consolidatedText;
+                            }
+                            currentHeadingSections.Clear();
+                        }
+                    }
+                    currentHeadingSections.Add(textSection);
+                }
+            }
+
+            if (currentHeadingSections.Count > 0)
+            {
+                var consolidatedText = string.Join("\n\n", currentHeadingSections.Select(s => s.ParagraphText));
+                foreach (var sec in currentHeadingSections)
+                {
+                    paragraphParentMap[sec] = consolidatedText;
+                }
+            }
+
             foreach (var section in doc.Sections)
             {
                 if (section is TableSection table)
@@ -313,27 +349,70 @@ namespace MSAgentFrameworkRAG.Services
                     string text = textSection.ParagraphText;
                     if (string.IsNullOrWhiteSpace(text)) continue;
 
-                    int index = 0;
-                    while (index < text.Length)
+                    if (!paragraphParentMap.TryGetValue(textSection, out var parentText))
                     {
-                        int length = Math.Min(chunkSize, text.Length - index);
-                        string chunkContent = text.Substring(index, length);
+                        parentText = text;
+                    }
 
+                    // Paragraph-Aware Semantic/Sentence Slicing
+                    if (text.Length <= chunkSize)
+                    {
+                        // Paragraph fits entirely in one chunk; preserve it intact
                         chunks.Add(new TextChunk
                         {
                             ChunkIndex = globalChunkIndex++,
-                            Content = chunkContent,
+                            Content = text,
                             PageNumber = section.PageOrSlideNumber,
-                            ParentContent = text, // Store the full page/paragraph text as the parent context
+                            ParentContent = parentText,
                             Metadata = new Dictionary<string, string>
                             {
                                 { "PageNumber", section.PageOrSlideNumber.ToString() }
                             }
                         });
+                    }
+                    else
+                    {
+                        // Paragraph exceeds max chunk size; split at sentence boundaries (.!? followed by space)
+                        var sentences = Regex.Split(text, @"(?<=[.!?])\s+");
+                        var currentChunk = new System.Text.StringBuilder();
 
-                        int step = chunkSize - overlap;
-                        if (step <= 0) step = chunkSize;
-                        index += step;
+                        foreach (var sentence in sentences)
+                        {
+                            if (currentChunk.Length + sentence.Length > chunkSize)
+                            {
+                                if (currentChunk.Length > 0)
+                                {
+                                    chunks.Add(new TextChunk
+                                    {
+                                        ChunkIndex = globalChunkIndex++,
+                                        Content = currentChunk.ToString().Trim(),
+                                        PageNumber = section.PageOrSlideNumber,
+                                        ParentContent = parentText,
+                                        Metadata = new Dictionary<string, string>
+                                        {
+                                            { "PageNumber", section.PageOrSlideNumber.ToString() }
+                                        }
+                                    });
+                                    currentChunk.Clear();
+                                }
+                            }
+                            currentChunk.Append(sentence).Append(" ");
+                        }
+
+                        if (currentChunk.Length > 0)
+                        {
+                            chunks.Add(new TextChunk
+                            {
+                                ChunkIndex = globalChunkIndex++,
+                                Content = currentChunk.ToString().Trim(),
+                                PageNumber = section.PageOrSlideNumber,
+                                ParentContent = parentText,
+                                Metadata = new Dictionary<string, string>
+                                {
+                                    { "PageNumber", section.PageOrSlideNumber.ToString() }
+                                }
+                            });
+                        }
                     }
                 }
             }
