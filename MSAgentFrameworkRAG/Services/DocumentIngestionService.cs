@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using OpenAI.Embeddings;
 using Pinecone;
 using MSAgentFrameworkRAG.Interfaces;
+using MSAgentFrameworkRAG.Helpers;
 
 namespace MSAgentFrameworkRAG.Services
 {
@@ -20,19 +21,22 @@ namespace MSAgentFrameworkRAG.Services
         private readonly AppDbContext _dbContext;
         private readonly OpenAISettings _openAiSettings;
         private readonly PineconeSettings _pineconeSettings;
+        private readonly IParserFactory _parserFactory;
 
         public DocumentIngestionService(
             IDocumentService documentService,
             IMetadataExtractionService metadataService,
             AppDbContext dbContext,
             IOptions<OpenAISettings> openAiOptions,
-            IOptions<PineconeSettings> pineconeOptions)
+            IOptions<PineconeSettings> pineconeOptions,
+            IParserFactory parserFactory)
         {
             _documentService = documentService ?? throw new ArgumentNullException(nameof(documentService));
             _metadataService = metadataService ?? throw new ArgumentNullException(nameof(metadataService));
             _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
             _openAiSettings = openAiOptions?.Value ?? throw new ArgumentNullException(nameof(openAiOptions));
             _pineconeSettings = pineconeOptions?.Value ?? throw new ArgumentNullException(nameof(pineconeOptions));
+            _parserFactory = parserFactory ?? throw new ArgumentNullException(nameof(parserFactory));
         }
 
         public async Task IngestDocumentAsync(string documentId, string filePath, string fileName)
@@ -51,8 +55,12 @@ namespace MSAgentFrameworkRAG.Services
                 doc.Status = "Processing";
                 _documentService.AddOrUpdate(doc);
 
+                Console.WriteLine("[Document Ingestion] Parsing contract document via layout parser...");
+                var parser = _parserFactory.GetParser();
+                var parsedDoc = await parser.ParseAsync(documentId, filePath).ConfigureAwait(false);
+
                 Console.WriteLine("[Document Ingestion] Running contract metadata extraction agent...");
-                var metadata = await _metadataService.ExtractMetadataAsync(filePath, fileName).ConfigureAwait(false);
+                var metadata = await _metadataService.ExtractMetadataAsync(parsedDoc, fileName).ConfigureAwait(false);
                 var result = metadata?.Result ?? new DocumentMetadataResult { FileName = fileName };
 
                 doc.FileName = UseDefault(result.FileName, fileName);
@@ -73,9 +81,38 @@ namespace MSAgentFrameworkRAG.Services
 
                 Console.WriteLine($"[Document Ingestion] Contract metadata parsed: PartyA={doc.PartyA}, PartyB={doc.PartyB}, Type={doc.AgreementType}, EffectiveDate={doc.EffectiveDate}, Version={doc.Version}");
 
-                Console.WriteLine("[Document Ingestion] Parsing and chunking contract document...");
-                var parser = Helpers.ParserFactory.GetParser(filePath);
-                var structuredDoc = parser.Parse(filePath);
+                Console.WriteLine("[Document Ingestion] Mapping and chunking contract document...");
+                
+                var structuredDoc = new StructuredDocument { DocumentName = fileName };
+                foreach (var sec in parsedDoc.Sections)
+                {
+                    if (sec.Type.Equals("heading", StringComparison.OrdinalIgnoreCase))
+                    {
+                        structuredDoc.Sections.Add(new TextSection
+                        {
+                            PageOrSlideNumber = sec.PageNumber,
+                            ParagraphText = $"### {sec.Text}"
+                        });
+                    }
+                    else
+                    {
+                        structuredDoc.Sections.Add(new TextSection
+                        {
+                            PageOrSlideNumber = sec.PageNumber,
+                            ParagraphText = sec.Text
+                        });
+                    }
+                }
+                foreach (var table in parsedDoc.Tables)
+                {
+                    structuredDoc.Sections.Add(new TableSection
+                    {
+                        PageOrSlideNumber = table.PageNumber,
+                        Headers = table.Headers,
+                        Rows = table.Rows
+                    });
+                }
+
                 var chunks = ChunkStructuredDocument(structuredDoc, chunkSize: 1000, overlap: 300);
                 doc.ChunkCount = chunks.Count;
 

@@ -6,7 +6,7 @@ namespace MSAgentFrameworkRAG.Interfaces
 {
     public interface IMetadataExtractionService
     {
-        Task<AgentResponse<DocumentMetadataResult>> ExtractMetadataAsync(string filePath, string fileName);
+        Task<AgentResponse<DocumentMetadataResult>> ExtractMetadataAsync(ParsedDocument parsedDoc, string fileName);
     }
 
     public class DocumentMetadataResult

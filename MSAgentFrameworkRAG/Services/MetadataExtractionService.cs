@@ -22,25 +22,28 @@ namespace MSAgentFrameworkRAG.Services
             _openAiSettings = openAiOptions?.Value ?? throw new ArgumentNullException(nameof(openAiOptions));
         }
 
-        public async Task<AgentResponse<DocumentMetadataResult>> ExtractMetadataAsync(string filePath, string fileName)
+        public async Task<AgentResponse<DocumentMetadataResult>> ExtractMetadataAsync(ParsedDocument parsedDoc, string fileName)
         {
+            if (parsedDoc == null) throw new ArgumentNullException(nameof(parsedDoc));
+
             Console.WriteLine($"[Metadata Extraction] Starting contract metadata extraction for '{fileName}'...");
             string sampleText = "";
 
             try
             {
-                var ext = Path.GetExtension(filePath).ToLowerInvariant();
-                if (ext == ".pdf")
+                var sb = new StringBuilder();
+                foreach (var section in parsedDoc.Sections)
                 {
-                    sampleText = ExtractTextFromPdf(filePath, maxPages: 5);
+                    sb.AppendLine(section.Text);
+                    if (sb.Length >= 30000)
+                    {
+                        break;
+                    }
                 }
-                else if (ext == ".docx")
+                sampleText = sb.ToString();
+                if (sampleText.Length > 30000)
                 {
-                    sampleText = ExtractFirstCharsFromDocx(filePath, maxLength: 30000);
-                }
-                else
-                {
-                    sampleText = ExtractFirstCharsFromText(filePath, maxLength: 30000);
+                    sampleText = sampleText.Substring(0, 30000);
                 }
             }
             catch (Exception ex)
@@ -152,7 +155,7 @@ FIELD RULES:
 - Extract explicit document version/revision if available.
 - If unavailable, return '1.0'.
 
-14. fileName
+15. fileName
 - Generate a normalized filename using:
   <PartyA>_<PartyB>_<AgreementType>
 - If one party is unknown, use:
@@ -201,49 +204,6 @@ Return ONLY the JSON object."
             }
 
             return null;
-        }
-
-        private string ExtractTextFromPdf(string filePath, int maxPages = 5)
-        {
-            using var document = PdfDocument.Open(filePath);
-            var pages = document.GetPages().Take(maxPages).Select(p => p.Text);
-            return string.Join("\n", pages);
-        }
-
-        private string ExtractFirstCharsFromDocx(string filePath, int maxLength = 30000)
-        {
-            using var fileStream = File.OpenRead(filePath);
-            using var archive = new ZipArchive(fileStream);
-            var entry = archive.GetEntry("word/document.xml");
-            if (entry == null) return string.Empty;
-
-            using var entryStream = entry.Open();
-            var doc = XDocument.Load(entryStream);
-            XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-
-            var sb = new StringBuilder();
-            foreach (var paragraph in doc.Descendants(w + "p"))
-            {
-                var textElements = paragraph.Descendants(w + "t");
-                foreach (var text in textElements)
-                {
-                    sb.Append(text.Value);
-                    if (sb.Length >= maxLength)
-                    {
-                        return sb.ToString().Substring(0, maxLength);
-                    }
-                }
-                sb.AppendLine();
-            }
-            return sb.ToString();
-        }
-
-        private string ExtractFirstCharsFromText(string filePath, int maxLength = 30000)
-        {
-            using var reader = new StreamReader(filePath);
-            char[] buffer = new char[maxLength];
-            int read = reader.ReadBlock(buffer, 0, maxLength);
-            return new string(buffer, 0, read);
         }
     }
 }

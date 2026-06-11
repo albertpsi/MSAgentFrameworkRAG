@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  sql-server:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql-db
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=YourStrong@Passw0rd
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "YourStrong@Passw0rd", "-Q", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  python-worker:
+    build:
+      context: ./docling-worker
+      dockerfile: Dockerfile
+    container_name: python-docling-worker
+    environment:
+      - STORAGE_DIR=/app/storage
+      - PORT=8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - shared-storage:/app/storage
+    depends_on:
+      - sql-server
+
+  web-api:
+    build:
+      context: ./MSAgentFrameworkRAG
+      dockerfile: Dockerfile
+    container_name: dotnet-web-api
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=sql-server;Database=RAGAgent;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;
+      - Parser__DoclingWorkerUrl=http://python-worker:8000
+      - Storage__RootDirectory=/app/wwwroot/storage
+      - OpenAI__ApiKey=YOUR_OPENAI_API_KEY
+      - OpenAI__ChatModel=gpt-4.1-mini
+      - OpenAI__EmbeddingModel=text-embedding-3-small
+      - Pinecone__ApiKey=YOUR_PINECONE_API_KEY
+      - Pinecone__IndexName=financialknowledgerepo
+    ports:
+      - "5000:8080"
+    volumes:
+      - shared-storage:/app/wwwroot/storage
+    depends_on:
+      sql-server:
+        condition: service_healthy
+      python-worker:
+        condition: service_started
+    restart: on-failure
+
+volumes:
+  sql-data:
+  shared-storage:

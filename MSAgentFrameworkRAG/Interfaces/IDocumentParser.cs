@@ -1,9 +1,10 @@
-using MSAgentFrameworkRAG;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace MSAgentFrameworkRAG.Interfaces
 {
     public interface IDocumentParser
     {
-        StructuredDocument Parse(string filePath);
+        Task<ParsedDocument> ParseAsync(string documentId, string filePath, CancellationToken cancellationToken = default);
     }
 }

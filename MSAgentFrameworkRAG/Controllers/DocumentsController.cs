@@ -1,10 +1,12 @@
 using System;
 using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
-using Quartz;
 using MSAgentFrameworkRAG.Interfaces;
 
 namespace MSAgentFrameworkRAG.Controllers
@@ -14,27 +16,29 @@ namespace MSAgentFrameworkRAG.Controllers
     public class DocumentsController : ControllerBase
     {
         private readonly IDocumentService _documentService;
-        private readonly ISchedulerFactory _schedulerFactory;
-        private readonly OpenAISettings _openAiSettings;
-        private readonly PineconeSettings _pineconeSettings;
-        private readonly string _uploadsDir;
+        private readonly StorageSettings _storageSettings;
+        private readonly ParserSettings _parserSettings;
+        private readonly IHttpClientFactory _httpClientFactory;
 
         public DocumentsController(
             IDocumentService documentService,
-            ISchedulerFactory schedulerFactory,
-            IOptions<OpenAISettings> openAiOptions,
-            IOptions<PineconeSettings> pineconeOptions)
+            IOptions<StorageSettings> storageOptions,
+            IOptions<ParserSettings> parserOptions,
+            IHttpClientFactory httpClientFactory)
         {
             _documentService = documentService ?? throw new ArgumentNullException(nameof(documentService));
-            _schedulerFactory = schedulerFactory ?? throw new ArgumentNullException(nameof(schedulerFactory));
-            _openAiSettings = openAiOptions?.Value ?? throw new ArgumentNullException(nameof(openAiOptions));
-            _pineconeSettings = pineconeOptions?.Value ?? throw new ArgumentNullException(nameof(pineconeOptions));
+            _storageSettings = storageOptions?.Value ?? throw new ArgumentNullException(nameof(storageOptions));
+            _parserSettings = parserOptions?.Value ?? throw new ArgumentNullException(nameof(parserOptions));
+            _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
 
-            // Set up local upload path
-            _uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
-            if (!Directory.Exists(_uploadsDir))
+            // Ensure storage directories exist
+            if (!Directory.Exists(_storageSettings.DocumentsDirectory))
             {
-                Directory.CreateDirectory(_uploadsDir);
+                Directory.CreateDirectory(_storageSettings.DocumentsDirectory);
+            }
+            if (!Directory.Exists(_storageSettings.ParsedDirectory))
+            {
+                Directory.CreateDirectory(_storageSettings.ParsedDirectory);
             }
         }
 
@@ -63,10 +67,8 @@ namespace MSAgentFrameworkRAG.Controllers
                 return BadRequest("Only PDF and DOCX contract documents are supported.");
             }
             
-            // Clean filename to remove any parentheses to prevent MSBuild compilation issues inside wwwroot folder
-            var cleanFileName = fileName.Replace("(", "").Replace(")", "").Replace(" ", "_");
-            var safeFileName = $"{documentId}_{cleanFileName}";
-            var filePath = Path.Combine(_uploadsDir, safeFileName);
+            // Save as {documentId}{extension} in the shared documents folder
+            var filePath = Path.Combine(_storageSettings.DocumentsDirectory, $"{documentId}{extension}");
 
             using (var stream = new FileStream(filePath, FileMode.Create))
             {
@@ -82,26 +84,37 @@ namespace MSAgentFrameworkRAG.Controllers
             };
             _documentService.AddOrUpdate(doc);
 
-            // Schedule Quartz Job for background processing (reading, chunking, metadata extraction, Pinecone indexing)
-            var scheduler = await _schedulerFactory.GetScheduler();
-            
-            var job = JobBuilder.Create<FileIngestionJob>()
-                .WithIdentity($"Job_{documentId}", "IngestionGroup")
-                .UsingJobData("documentId", documentId)
-                .UsingJobData("filePath", filePath)
-                .UsingJobData("fileName", fileName)
-                .UsingJobData("openAIApiKey", _openAiSettings.ApiKey)
-                .UsingJobData("pineconeApiKey", _pineconeSettings.ApiKey)
-                .UsingJobData("indexName", _pineconeSettings.IndexName)
-                .UsingJobData("embeddingModel", _openAiSettings.EmbeddingModel)
-                .Build();
+            // Trigger the Python Docling worker asynchronously (fire-and-forget)
+            var workerUrl = $"{_parserSettings.DoclingWorkerUrl.TrimEnd('/')}/api/parse";
+            var parsePayload = new
+            {
+                documentId = documentId,
+                fileName = fileName,
+                extension = extension
+            };
 
-            var trigger = TriggerBuilder.Create()
-                .WithIdentity($"Trigger_{documentId}", "IngestionGroup")
-                .StartNow()
-                .Build();
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var client = _httpClientFactory.CreateClient();
+                    var content = new StringContent(
+                        JsonSerializer.Serialize(parsePayload),
+                        Encoding.UTF8,
+                        "application/json"
+                    );
 
-            await scheduler.ScheduleJob(job, trigger);
+                    var response = await client.PostAsync(workerUrl, content).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        Console.WriteLine($"[Documents Controller ERROR] Python worker returned status: {response.StatusCode}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Documents Controller ERROR] Failed to contact Python worker at {workerUrl}: {ex.Message}");
+                }
+            });
 
             return Ok(doc);
         }

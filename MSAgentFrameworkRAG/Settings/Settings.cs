@@ -19,4 +19,21 @@ namespace MSAgentFrameworkRAG
         public int RerankTopN { get; set; } = 10;
         public int QueryTopK { get; set; } = 40;
     }
+
+    public class ParserSettings
+    {
+        public const string Position = "Parser";
+        public string Provider { get; set; } = "Docling";
+        public string DoclingWorkerUrl { get; set; } = "http://localhost:8000";
+    }
+
+    public class StorageSettings
+    {
+        public const string Position = "Storage";
+        public string RootDirectory { get; set; } = "wwwroot/storage";
+
+        public string DocumentsDirectory => System.IO.Path.Combine(RootDirectory, "documents");
+        public string ParsedDirectory => System.IO.Path.Combine(RootDirectory, "parsed");
+        public string ChunksDirectory => System.IO.Path.Combine(RootDirectory, "chunks");
+    }
 }

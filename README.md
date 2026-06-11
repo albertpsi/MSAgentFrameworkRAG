@@ -19,6 +19,7 @@ An advanced, production-ready Retrieval-Augmented Generation (RAG) platform engi
    - [4.1 Relational Schema Map (SQL Server via EF Core)](#41-relational-schema-map-sql-server-via-ef-core)
    - [4.2 Vector Schema (Pinecone Index Metadata)](#42-vector-schema-pinecone-index-metadata)
 5. [🚀 Getting Started & Setup](#5-getting-started--setup)
+   - [5.3 Distributed Docling Parsing Service Setup](#53-distributed-docling-parsing-service-setup)
 6. [🔬 Advanced RAG Engineering & Contract Optimization](#6-advanced-rag-engineering--contract-optimization)
 
 ---
@@ -34,11 +35,12 @@ To prepare the RAG platform for massive, highly scalable multi-agent environment
 * **`IMetadataExtractionService`**: Extracts structured, normalized contract metadata fields from raw uploaded agreement files (PDF or Word) using the dedicated extraction agent.
 * **`IDocumentService` / `IConversationService`**: Handle standard relational queries for documents and chat logs in the SQL database.
 * **`SessionCache`**: In-memory singleton caching preserving Microsoft Agents AI state across conversations.
+* **Distributed Layout-Aware Docling Parser**: Offloads PDF and Word parsing to a dedicated FastAPI Python service using IBM Docling. The C# backend communicates asynchronously with the parser via HTTP triggers and a shared storage volume, removing heavy native PDF/Word parsing dependencies from the C# application.
 
 ---
 
-### 1.2 High-Fidelity Architecture Blueprint
-This diagram details the interaction between the five system layers, their boundaries, and the data flow through ingestion, coarse querying, and fine-grained reranking:
+## 1.2 High-Fidelity Architecture Blueprint
+This diagram details the interaction between the system layers, their boundaries, the distributed Docling parsing worker, and the data flow through ingestion, coarse querying, and fine-grained reranking:
 
 ```mermaid
 flowchart TD
@@ -57,19 +59,24 @@ flowchart TD
     subgraph BackendLayer ["3. ASP.NET Core C# API & Background workers"]
         Controllers["API Controllers - Chat / Documents / Conversations"]
         Services["Core Services - ChatAgent, Ingestion, Retrieval, Rerank, MetadataExtractor"]
-        Quartz["Quartz.NET Background Engine"]
+        Quartz["Quartz.NET Background Engine (IngestionPollingJob)"]
         DB_Context["EF Core AppDbContext"]
         S_Cache["In-Memory SessionCache"]
         Vector_Adapter["PineconeTextSearchAdapter"]
     end
 
-    subgraph StorageLayer ["4. Data & Vector Storage"]
-        Disk["Local Uploads Disk (wwwroot/uploads/)"]
+    subgraph StorageLayer ["4. Shared & Database Storage"]
+        Shared_Vol["Shared Storage (wwwroot/storage/)"]
         SQL_DB["SQL Server Relational Database"]
         Pinecone_DB["Pinecone Vector Database"]
     end
 
-    subgraph AILayer ["5. AI & Cognitive Services"]
+    subgraph ParsingLayer ["5. Distributed Parsing Worker"]
+        Docling_Worker["FastAPI Python Worker (docling-worker)"]
+        HuggingFace["Local HF Model Cache (Layout/Table Models)"]
+    end
+
+    subgraph AILayer ["6. AI & Cognitive Services"]
         OpenAI_API["OpenAI API (gpt-4o-mini / text-embedding-3-small)"]
         Pinecone_Inference["Pinecone Inference API (bge-reranker-v2-m3 Reranker)"]
     end
@@ -81,8 +88,14 @@ flowchart TD
     Proxy -->|"Proxy Redirect (Port 61622)"| Controllers
     
     Controllers -->|"Dependency Injection"| Services
-    Controllers -->|"Schedules Ingestion Jobs"| Quartz
-    Quartz -->|"Invokes off-thread"| Services
+    Controllers -->|"Triggers parsing call (HTTP /api/parse)"| Docling_Worker
+    Controllers -->|"Schedules polling via Quartz"| Quartz
+    
+    Docling_Worker -->|"Reads layout weights"| HuggingFace
+    Docling_Worker -->|"Writes parsed document JSON"| Shared_Vol
+    
+    Quartz -->|"Checks parsed JSON in"| Shared_Vol
+    Quartz -->|"Triggers downstream ingestion"| Services
     
     Services -->|"Read / Write Transactions"| DB_Context
     Services -->|"Retrieves / Updates Sessions"| S_Cache
@@ -117,10 +130,10 @@ flowchart TD
   * `Data/` ── Relational DB Context (`AppDbContext.cs`).
   * `Models/` ── Logical domain schemas (`Models.cs`) and search chunk models (`TextChunk.cs`).
   * `Settings/` ── Options pattern configurations (`Settings.cs`).
-  * `Jobs/` ── Background scheduler workers (`FileIngestionJob.cs`).
+  * `Jobs/` ── Background scheduler polling workers (`IngestionPollingJob.cs`).
   * `Caching/` ── Stateful memory cache adapters (`SessionCache.cs`).
   * `Search/` ── Custom parallel hybrid search (`LocalBm25Retriever.cs`, `SearchAdapter.cs`) and dense vector embedding generators (`Embeddings.cs`).
-  * `Helpers/` ── Multi-format layout parser engines (`PdfParser.cs`, `WordParser.cs`, `ParserFactory.cs`).
+  * `Helpers/` ── Docling parsing wrapper (`DoclingParser.cs`) and DI engine resolver (`ParserFactory.cs`).
 
 * **Two-Stage Parallel Hybrid Retrieval Pipeline**: To maximize recall and precision for exact legal terms and semantic intent, the backend executes a hybrid retrieval strategy:
   1. **Stage 1 (Coarse Retrieval - Parallel Dense & Sparse):** Triggers a dense vector query (OpenAI embedding + Pinecone similarity search) and a local lexical sparse query (C# BM25 over SQL Server `ParentChunks`) concurrently. A deduplicating fusion step unions the candidate pools using exact text comparisons.
@@ -635,6 +648,53 @@ Add connection details and two-stage retrieval settings in your [appsettings.jso
    npm run dev
    ```
    Open `http://localhost:3000` to interact with the application.
+
+### 5.3 Distributed Docling Parsing Service Setup
+
+The document layout-aware parsing is executed by a separate Python FastAPI worker (`docling-worker`). The worker is configured by default to run in resource-constrained environments (like a **6–8 GB RAM** container/VM on CPU) using memory-safe execution parameters.
+
+#### A. Standard Startup (Memory-Safe CPU Mode)
+This configuration uses **page-by-page sequential processing** and restricts PyTorch to a single thread to completely avoid virtual memory fragmentation and `std::bad_alloc` OOM issues:
+
+```bash
+cd docling-worker
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+
+# Start FastAPI server on port 8000
+uvicorn app:app --host 127.0.0.1 --port 8000
+```
+
+*Under the hood, `app.py` enforces `OMP_NUM_THREADS=1` and `images_scale=0.8` to keep RAM usage small and constant.*
+
+#### B. High-Performance Testing (32 GB+ RAM Mode)
+If you are running the service on a higher-resource system (e.g. a local developer machine with **32 GB of RAM** or a GPU-accelerated cloud instance) and want to maximize parsing throughput, you can bypass the sequential single-page bottlenecks.
+
+To test this high-performance scenario, adjust [app.py](file:///d:/MSAgentFrameworkRAG/MSAgentFrameworkRAG/docling-worker/app.py):
+
+1. **Enable Multi-threaded CPU Execution**:
+   Modify or remove the thread limits at the very top of `app.py` to allow PyTorch to utilize multiple cores (e.g., 4 threads):
+   ```python
+   os.environ["OMP_NUM_THREADS"] = "4"
+   os.environ["MKL_NUM_THREADS"] = "4"
+   ```
+2. **Increase Batch Processing & Scaling**:
+   In the converter configuration block, increase the page batch limits and image resolution scale:
+   ```python
+   pipeline_options.layout_batch_size = 4
+   pipeline_options.table_batch_size = 4
+   pipeline_options.images_scale = 1.0  # Full resolution
+   pipeline_options.accelerator_options.num_threads = 4
+   ```
+3. **Bypass Page-by-Page Split Loop**:
+   Modify `run_parsing_task` to run the direct converter rather than the page range loop:
+   ```python
+   # Direct full document parse
+   result = converter.convert(pdf_path)
+   doc = result.document
+   ```
+   *This allows Docling to utilize full parallel tensor operations across all pages, yielding up to 3–5x faster processing on high-memory systems.*
 
 ---
 

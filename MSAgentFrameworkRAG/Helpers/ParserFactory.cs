@@ -1,41 +1,32 @@
 using System;
-using System.IO;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using MSAgentFrameworkRAG.Interfaces;
 
 namespace MSAgentFrameworkRAG.Helpers
 {
-    public class PlainTextParser : IDocumentParser
+    public interface IParserFactory
     {
-        public StructuredDocument Parse(string filePath)
-        {
-            var doc = new StructuredDocument { DocumentName = Path.GetFileName(filePath) };
-            try
-            {
-                string text = File.ReadAllText(filePath);
-                doc.Sections.Add(new TextSection
-                {
-                    PageOrSlideNumber = 1,
-                    ParagraphText = text
-                });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[PlainTextParser ERROR] Failed to read plain text file '{filePath}': {ex.Message}");
-            }
-            return doc;
-        }
+        IDocumentParser GetParser();
     }
 
-    public static class ParserFactory
+    public class ParserFactory : IParserFactory
     {
-        public static IDocumentParser GetParser(string filePath)
+        private readonly IServiceProvider _serviceProvider;
+        private readonly ParserSettings _parserSettings;
+
+        public ParserFactory(IServiceProvider serviceProvider, IOptions<ParserSettings> parserSettings)
         {
-            string ext = Path.GetExtension(filePath).ToLowerInvariant();
-            return ext switch
+            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+            _parserSettings = parserSettings?.Value ?? throw new ArgumentNullException(nameof(parserSettings));
+        }
+
+        public IDocumentParser GetParser()
+        {
+            return _parserSettings.Provider.ToLowerInvariant() switch
             {
-                ".pdf" => new PdfParser(),
-                ".docx" => new WordParser(),
-                _ => new PlainTextParser()
+                "docling" => _serviceProvider.GetRequiredService<DoclingParser>(),
+                _ => throw new NotSupportedException($"Parser provider '{_parserSettings.Provider}' is not supported.")
             };
         }
     }
